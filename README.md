@@ -226,4 +226,4 @@ git push -u origin main
 
 ## 📄 开源许可证 (License)
 
-本项目采用 [MIT License](LICENSE) 开源许可证。欢迎自由 fork、修改与提交 Pull Request！
+本项目采用 [MIT License](LICENSE) 开源许可证。
