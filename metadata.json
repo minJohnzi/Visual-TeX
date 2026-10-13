@@ -1,0 +1,6 @@
+{
+  "name": "LaTeX Formula Editor",
+  "description": "Standalone visual LaTeX math formula editor and real-time preview tool with symbol palettes and HD export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

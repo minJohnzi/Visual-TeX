@@ -1,0 +1,132 @@
+export type Language = 'zh' | 'en';
+
+export interface Translations {
+  // Brand & Nav
+  appName: string;
+  draftSaved: string;
+  draftSavedTooltip: string;
+  classicExamples: string;
+  classicExamplesTooltip: string;
+  history: string;
+  historyTooltip: string;
+  help: string;
+  helpTooltip: string;
+  offlineHtml: string;
+  offlineHtmlTooltip: string;
+  themeToggleDark: string;
+  themeToggleLight: string;
+  langSwitchTooltip: string;
+  currentLangName: string;
+
+  // Palette
+  paletteTitle: string;
+  clickToInsert: string;
+
+  // Editor
+  editorTitle: string;
+  modeVisual: string;
+  modeSource: string;
+  modeSwitchedToVisual: string;
+  modeSwitchedToSource: string;
+  versionHistoryBtn: string;
+  versionHistoryTitle: string;
+  versionHistorySubtitle: string;
+  versionTag: string;
+  versionChars: string;
+  historyStepBack: string;
+  historyStepForward: string;
+  historyStepBackTooltip: string;
+  historyStepForwardTooltip: string;
+  delimitersNone: string;
+  delimitersInline: string;
+  delimitersDisplay: string;
+  formatCode: string;
+  clearCode: string;
+  copyCode: string;
+  copiedCode: string;
+  copyCodeTooltip: string;
+  editorPlaceholder: string;
+  charCount: string;
+  estLineCount: string;
+  compilerStatus: string;
+  statusCompiling: string;
+  statusReady: string;
+  statusError: string;
+  visualModeHint: string;
+  sourceModeHint: string;
+
+  // Preview & Export
+  previewTitle: string;
+  zoom: string;
+  bgLabel: string;
+  bgCheckerTitle: string;
+  bgWhiteTitle: string;
+  bgGrayTitle: string;
+  bgDarkTitle: string;
+  colorLabel: string;
+  colorDefault: string;
+  colorBlue: string;
+  colorGreen: string;
+  colorPurple: string;
+  colorAmber: string;
+  colorRed: string;
+  syntaxValid: string;
+  syntaxWarning: string;
+  syntaxWarningHelp: string;
+  previewEmptyPlaceholder: string;
+  exportToolbarLabel: string;
+  copyPng: string;
+  copyPngTooltip: string;
+  downloadPng: string;
+  downloadPngTooltip: string;
+  copySvg: string;
+  copySvgTooltip: string;
+  downloadSvg: string;
+  downloadSvgTooltip: string;
+  copyMathMl: string;
+  copyMathMlTooltip: string;
+  copyLatex: string;
+  copyLatexTooltip: string;
+
+  // Modals
+  classicModalTitle: string;
+  loadFormula: string;
+  historyModalTitle: string;
+  clearHistory: string;
+  noHistory: string;
+  restoreFormula: string;
+  helpModalTitle: string;
+  helpIntro: string;
+  shortcutsTitle: string;
+  colShortcut: string;
+  colFunction: string;
+  shortcutTabDesc: string;
+  shortcutShiftTabDesc: string;
+  shortcutUndoDesc: string;
+  shortcutRedoDesc: string;
+  shortcutWrapDesc: string;
+  exportTipsTitle: string;
+  tipPng: string;
+  tipMathMl: string;
+  tipSvg: string;
+
+  // Toasts & Alerts
+  toastCopiedPng: string;
+  toastCopiedSvg: string;
+  toastCopiedMathMl: string;
+  toastCopiedLatex: string;
+  toastDownloadedPng: string;
+  toastDownloadedSvg: string;
+  toastDownloadedHtml: string;
+  toastRestoredHistory: string;
+  toastRestoredStep: string;
+  toastClearedHistory: string;
+  toastLoadedExample: string;
+  toastFormatted: string;
+  toastCleared: string;
+  toastGeneratingPng: string;
+  toastFormulaEmpty: string;
+  toastClipboardUnavailable: string;
+  toastDelimiterSwitched: string;
+  toastDelimiterRemoved: string;
+}
