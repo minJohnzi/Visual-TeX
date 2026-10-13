@@ -3,6 +3,7 @@
 <div align="center">
 
 [![Built with Google AI Studio](https://img.shields.io/badge/Built%20with-Google%20AI%20Studio-4285F4?style=for-the-badge&logo=google&logoColor=white)](https://aistudio.google.com/)
+[![Online Demo](https://img.shields.io/badge/Online%20Demo-visual--tex.ai.studio-success?style=for-the-badge&logo=google-chrome&logoColor=white)](https://visual-tex.ai.studio)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Vite](https://img.shields.io/badge/Vite-8-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
@@ -13,11 +14,15 @@
   <b>现代化所见即所得数学公式工作台 · 双模式平滑切换 · 毫秒级 KaTeX 实时渲染 · 多格式高保真矢量导出</b>
 </p>
 
+<p align="center">
+  🌐 <b>在线访问与体验地址</b>：<a href="https://visual-tex.ai.studio"><b>https://visual-tex.ai.studio</b></a>
+</p>
+
 </div>
 
 ---
 
-> 💡 **项目声明**：本项目由 **[Google AI Studio](https://aistudio.google.com/)** 辅助设计与全栈构建。集成了 **Symbolab 式直观排版交互** 与 **KaTeX / MathJax 极致排版速度**，支持高清 PNG、纯矢量 SVG、Word 原生 MathML、独立离线 HTML 及 LaTeX 源码导出。
+> 💡 **项目声明**：本项目由 **[Google AI Studio](https://aistudio.google.com/)** 辅助设计与全栈构建，正式发布及在线体验地址为 **[https://visual-tex.ai.studio](https://visual-tex.ai.studio)**。集成了 **Symbolab 式直观排版交互** 与 **KaTeX / MathJax 极致排版速度**，支持高清 PNG、纯矢量 SVG、Word 原生 MathML、独立离线 HTML 及 LaTeX 源码导出。
 
 ---
 
@@ -206,6 +211,7 @@ git push -u origin main
 ## 🤖 构建声明 (Built with AI Studio)
 
 本项目由 **[Google AI Studio](https://aistudio.google.com/)** 辅助设计与全栈构建。
+- **在线发布地址**：[https://visual-tex.ai.studio](https://visual-tex.ai.studio)
 - **构建平台**：Google AI Studio Build
 - **核心理念**：打造开源、直观、高性能的现代化数学公式编辑环境。
 - **免责与开源**：项目代码完全开源，遵循 MIT License，可自由用于学术研究、教学及商业项目。
