@@ -76,6 +76,11 @@ export const zh: Translations = {
   syntaxValid: '语法正确',
   syntaxWarning: '语法警告 (点击查看)',
   syntaxWarningHelp: '公式语法解析正常，已成功排版渲染',
+  mixedModeBadge: '图文混排模式',
+  autoAlignedBadge: '自动多行对齐',
+  jumpToError: '定位错误',
+  clickToJumpError: '🎯 点击光标定位并选中出错代码',
+  lineColLabel: '第 {line} 行，第 {col} 列',
   previewEmptyPlaceholder: '(在此实时显示数学公式预览)',
   exportToolbarLabel: '多格式超清导出',
   copyPng: '复制高清 PNG',
@@ -132,4 +137,5 @@ export const zh: Translations = {
   toastClipboardUnavailable: '剪贴板不可用，请使用下载功能',
   toastDelimiterSwitched: '已切换数学定界符',
   toastDelimiterRemoved: '已移除外层定界符',
+  toastJumpedToError: '已自动跳转并选中出错代码 (第 {line} 行)',
 };

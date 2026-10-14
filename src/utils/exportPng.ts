@@ -1,5 +1,10 @@
 import katex from 'katex';
-import { stripOuterMathDelimiters } from './latex';
+import {
+  stripOuterMathDelimiters,
+  detectFormulaMode,
+  normalizePureMathForRender,
+  renderFormulaSafely,
+} from './latex';
 import { toBlob as htmlToImageToBlob } from 'html-to-image';
 
 declare global {
@@ -27,157 +32,156 @@ export interface SvgRenderResult {
  * 规范化 LaTeX 代码，去除多余定界符并转义输入占位符
  */
 export function prepareFormulaForRender(rawLatex: string): string {
-  const { cleaned } = stripOuterMathDelimiters(rawLatex);
-  if (!cleaned.trim()) return '';
-  return cleaned
-    .replace(/\\placeholder\{([^}]*)\}/g, (_m, inner) => (inner ? inner : '\\Box'))
-    .replace(/\\placeholder/g, '\\Box')
-    .replace(/\\square/g, '\\Box')
-    .replace(/#\?/g, '\\Box')
-    .replace(/#@/g, '');
+  const modeDetect = detectFormulaMode(rawLatex);
+  if (modeDetect.mode === 'mixed-content') {
+    return rawLatex;
+  }
+  const { normalized } = normalizePureMathForRender(modeDetect.cleanedText);
+  return normalized;
 }
 
 /**
  * 获取公式的纯矢量 SVG 元素及 CSS 像素宽高
  * 优先采用 MathJax 3 生成纯 Path 路径（无需嵌入任何外部 WebFont 字体），
- * 若不可用则降级采用 KaTeX HTML 容器。
+ * 若处于图文混排模式或 MathJax 不可用，则降级采用 KaTeX HTML 容器。
  */
 export async function getFormulaSvgElement(
   latex: string,
   color: string = 'default',
   bgMode: CanvasBgMode = 'checker'
 ): Promise<SvgRenderResult> {
-  const displayCode = prepareFormulaForRender(latex);
-  if (!displayCode.trim()) {
-    throw new Error('公式内容为空');
-  }
+  const modeDetect = detectFormulaMode(latex);
 
-  // 1. 首选：使用 MathJax 3 渲染纯矢量路径 SVG (无外部字体依赖，无限缩放不失真)
-  if (typeof window !== 'undefined' && window.MathJax) {
-    try {
-      if (window.MathJax.startup?.promise) {
-        await window.MathJax.startup.promise;
-      }
+  // 1. 若为纯公式模式，首选尝试 MathJax 3 渲染纯矢量路径 SVG (无外部字体依赖，无限缩放不失真)
+  if (modeDetect.mode === 'pure-math') {
+    const displayCode = prepareFormulaForRender(latex);
+    if (!displayCode.trim()) {
+      throw new Error('公式内容为空');
+    }
 
-      let wrapper: HTMLElement | null = null;
-      if (typeof window.MathJax.tex2svgPromise === 'function') {
-        wrapper = await window.MathJax.tex2svgPromise(displayCode, { display: true });
-      } else if (typeof window.MathJax.tex2svg === 'function') {
-        wrapper = window.MathJax.tex2svg(displayCode, { display: true });
-      }
+    if (typeof window !== 'undefined' && window.MathJax) {
+      try {
+        if (window.MathJax.startup?.promise) {
+          await window.MathJax.startup.promise;
+        }
 
-      if (wrapper) {
-        // 检查 MathJax 是否返回了语法错误
-        const errorEl = wrapper.querySelector('merror, [data-mjx-error]');
-        if (!errorEl) {
-          const rawSvg = wrapper.querySelector('svg');
-          if (rawSvg) {
-            const svg = rawSvg.cloneNode(true) as SVGElement;
+        let wrapper: HTMLElement | null = null;
+        if (typeof window.MathJax.tex2svgPromise === 'function') {
+          wrapper = await window.MathJax.tex2svgPromise(displayCode, { display: true });
+        } else if (typeof window.MathJax.tex2svg === 'function') {
+          wrapper = window.MathJax.tex2svg(displayCode, { display: true });
+        }
 
-            // 临时挂载到隐藏容器以让浏览器精确计算真实 CSS 渲染宽高
-            const host = document.createElement('div');
-            host.style.position = 'fixed';
-            host.style.left = '-9999px';
-            host.style.top = '-9999px';
-            host.style.visibility = 'hidden';
-            host.style.display = 'block';
-            host.appendChild(wrapper);
-            document.body.appendChild(host);
+        if (wrapper) {
+          // 检查 MathJax 是否返回了语法错误
+          const errorEl = wrapper.querySelector('merror, [data-mjx-error]');
+          if (!errorEl) {
+            const rawSvg = wrapper.querySelector('svg');
+            if (rawSvg) {
+              const svg = rawSvg.cloneNode(true) as SVGElement;
 
-            let rectWidth = 0;
-            let rectHeight = 0;
-            try {
-              const rect = rawSvg.getBoundingClientRect();
-              rectWidth = rect.width;
-              rectHeight = rect.height;
-            } finally {
-              document.body.removeChild(host);
-            }
+              // 临时挂载到隐藏容器以让浏览器精确计算真实 CSS 渲染宽高
+              const host = document.createElement('div');
+              host.style.position = 'fixed';
+              host.style.left = '-9999px';
+              host.style.top = '-9999px';
+              host.style.visibility = 'hidden';
+              host.style.display = 'block';
+              host.appendChild(wrapper);
+              document.body.appendChild(host);
 
-            // 读取并解析 viewBox 尺寸 (MathJax 内部字体单位：1000 units = 1 em)
-            let minX = 0;
-            let minY = 0;
-            let vbWidth = 0;
-            let vbHeight = 0;
-            const vbAttr = svg.getAttribute('viewBox');
-            if (vbAttr) {
-              const parts = vbAttr.trim().split(/\s+/).map(Number);
-              if (parts.length === 4 && parts.every((n) => !isNaN(n))) {
-                [minX, minY, vbWidth, vbHeight] = parts;
+              let rectWidth = 0;
+              let rectHeight = 0;
+              try {
+                const rect = rawSvg.getBoundingClientRect();
+                rectWidth = rect.width;
+                rectHeight = rect.height;
+              } finally {
+                document.body.removeChild(host);
               }
-            }
 
-            // 计算合理的 CSS 像素尺寸 (标准 display math 基准字体大小约 22px)
-            let cssWidth = rectWidth;
-            let cssHeight = rectHeight;
-
-            if (!cssWidth || cssWidth < 10) {
-              cssWidth = vbWidth > 0 ? (vbWidth / 1000) * 22 : 400;
-            }
-            if (!cssHeight || cssHeight < 10) {
-              cssHeight = vbHeight > 0 ? (vbHeight / 1000) * 22 : 100;
-            }
-
-            cssWidth = Math.max(Math.round(cssWidth), 40);
-            cssHeight = Math.max(Math.round(cssHeight), 24);
-
-            // 补充必须的 XML 命名空间及尺寸
-            svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-            svg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
-            svg.setAttribute('width', `${cssWidth}`);
-            svg.setAttribute('height', `${cssHeight}`);
-            if (vbWidth > 0 && vbHeight > 0) {
-              svg.setAttribute('viewBox', `${minX} ${minY} ${vbWidth} ${vbHeight}`);
-            }
-
-            // 颜色处理：深色背景下默认为明亮白，亮色/透明下默认为深色
-            let resolvedColor = color;
-            if (color === 'default') {
-              resolvedColor = bgMode === 'dark' ? '#f8fafc' : '#0f172a';
-            }
-            svg.style.color = resolvedColor;
-            svg.setAttribute('color', resolvedColor);
-            svg.setAttribute('fill', 'currentColor');
-
-            // 确保全局缓存中的 defs 被打包进当前 svg，保证独立性
-            if (!svg.querySelector('defs')) {
-              const globalCache = document.getElementById('MJX-SVG-global-cache');
-              if (globalCache) {
-                const defs = globalCache.querySelector('defs') || globalCache;
-                svg.insertBefore(defs.cloneNode(true), svg.firstChild);
+              // 读取并解析 viewBox 尺寸 (MathJax 内部字体单位：1000 units = 1 em)
+              let minX = 0;
+              let minY = 0;
+              let vbWidth = 0;
+              let vbHeight = 0;
+              const vbAttr = svg.getAttribute('viewBox');
+              if (vbAttr) {
+                const parts = vbAttr.trim().split(/\s+/).map(Number);
+                if (parts.length === 4 && parts.every((n) => !isNaN(n))) {
+                  [minX, minY, vbWidth, vbHeight] = parts;
+                }
               }
-            }
 
-            return { svg, cssWidth, cssHeight };
+              // 计算合理的 CSS 像素尺寸 (标准 display math 基准字体大小约 22px)
+              let cssWidth = rectWidth;
+              let cssHeight = rectHeight;
+
+              if (!cssWidth || cssWidth < 10) {
+                cssWidth = vbWidth > 0 ? (vbWidth / 1000) * 22 : 400;
+              }
+              if (!cssHeight || cssHeight < 10) {
+                cssHeight = vbHeight > 0 ? (vbHeight / 1000) * 22 : 100;
+              }
+
+              cssWidth = Math.max(Math.round(cssWidth), 40);
+              cssHeight = Math.max(Math.round(cssHeight), 24);
+
+              // 补充必须的 XML 命名空间及尺寸
+              svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+              svg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+              svg.setAttribute('width', `${cssWidth}`);
+              svg.setAttribute('height', `${cssHeight}`);
+              if (vbWidth > 0 && vbHeight > 0) {
+                svg.setAttribute('viewBox', `${minX} ${minY} ${vbWidth} ${vbHeight}`);
+              }
+
+              // 颜色处理：深色背景下默认为明亮白，亮色/透明下默认为深色
+              let resolvedColor = color;
+              if (color === 'default') {
+                resolvedColor = bgMode === 'dark' ? '#f8fafc' : '#0f172a';
+              }
+              svg.style.color = resolvedColor;
+              svg.setAttribute('color', resolvedColor);
+              svg.setAttribute('fill', 'currentColor');
+
+              // 确保全局缓存中的 defs 被打包进当前 svg，保证独立性
+              if (!svg.querySelector('defs')) {
+                const globalCache = document.getElementById('MJX-SVG-global-cache');
+                if (globalCache) {
+                  const defs = globalCache.querySelector('defs') || globalCache;
+                  svg.insertBefore(defs.cloneNode(true), svg.firstChild);
+                }
+              }
+
+              return { svg, cssWidth, cssHeight };
+            }
           }
         }
+      } catch {
+        // fallback to KaTeX DOM
       }
-    } catch {
-      // fallback to KaTeX
     }
   }
 
-  // 2. 降级方案：使用 KaTeX 渲染 HTML 结构转换为 SVG foreignObject
+  // 2. 降级方案 / 图文混排方案：使用 KaTeX 渲染 HTML 结构转换为 SVG foreignObject
+  const outcome = renderFormulaSafely(latex);
+  if (!outcome.html.trim()) {
+    throw new Error('公式或混排内容为空');
+  }
+
   const div = document.createElement('div');
   div.style.position = 'fixed';
   div.style.top = '-9999px';
   div.style.left = '-9999px';
+  div.style.maxWidth = '900px';
+  div.innerHTML = outcome.html;
   document.body.appendChild(div);
-  try {
-    katex.render(displayCode, div, {
-      displayMode: true,
-      throwOnError: false,
-      output: 'html',
-      macros: {
-        '\\placeholder': '\\Box',
-        '\\square': '\\Box',
-      },
-    });
 
-    const renderedEl = div.querySelector('.katex');
-    const rect = renderedEl ? renderedEl.getBoundingClientRect() : { width: 300, height: 100 };
-    const width = Math.max(Math.ceil(rect.width) + 24, 120);
-    const height = Math.max(Math.ceil(rect.height) + 24, 60);
+  try {
+    const rect = div.getBoundingClientRect();
+    const width = Math.max(Math.ceil(rect.width) + 32, 140);
+    const height = Math.max(Math.ceil(rect.height) + 32, 60);
 
     const svgNs = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(svgNs, 'svg');
@@ -241,8 +245,8 @@ export async function exportSvg(
 
 /**
  * 导出高清 PNG 图片（复制到系统剪贴板或下载）
- * - 针对复杂长公式、分式、积分方程组智能缩放，杜绝超过浏览器 Canvas 尺寸上限 (16384px)
- * - 默认采用 3.0x 超高清采样，清晰锐利满足论文/PPT/出版需求
+ * - 针对复杂长公式、分式、积分方程组智能缩放，杜绝超过浏览器 Canvas 尺寸上限 (4096px)
+ * - 动态适配 devicePixelRatio 与印刷级采样 (至少 3.0x)，清晰锐利满足论文/PPT/出版需求
  * - 双重引擎保障：MathJax 矢量路径优先，KaTeX + html-to-image 真实 DOM 无缝降级
  */
 export async function exportPng(
@@ -251,12 +255,14 @@ export async function exportPng(
   color: string,
   toClipboard: boolean
 ): Promise<{ success: boolean; message: string }> {
-  const displayCode = prepareFormulaForRender(latex);
-  if (!displayCode.trim()) {
-    throw new Error('公式内容为空');
+  const modeDetect = detectFormulaMode(latex);
+
+  // 1. 若为图文混排模式，直接走高保真 DOM 截取
+  if (modeDetect.mode === 'mixed-content') {
+    return await exportPngViaDom(latex, bgMode, color, toClipboard);
   }
 
-  // 1. 优先尝试 MathJax 纯路径矢量栅格化
+  // 2. 纯公式模式下，优先尝试 MathJax 纯路径矢量栅格化
   try {
     const { svg, cssWidth, cssHeight } = await getFormulaSvgElement(latex, color, bgMode);
 
@@ -274,7 +280,7 @@ export async function exportPng(
     let canvasWidth = drawW + padX * 2;
     let canvasHeight = drawH + padY * 2;
 
-    // 核心安全防护：严格限制 Canvas 尺寸在安全上限内 (4096px，兼容所有 Safari/iOS 及 Chrome)
+    // 严格限制 Canvas 尺寸在安全上限内 (4096px，兼容所有 Safari/iOS 及 Chrome)
     const MAX_CANVAS_DIM = 4096;
     if (canvasWidth > MAX_CANVAS_DIM || canvasHeight > MAX_CANVAS_DIM) {
       const shrink = Math.min(
@@ -345,19 +351,24 @@ export async function exportPng(
     console.warn('MathJax 矢量生成 PNG 出现异常，无缝启用 KaTeX DOM 备用渲染:', err);
   }
 
-  // 2. 备用保障方案：使用 html-to-image 截取真实 KaTeX DOM 元素
-  return await exportPngViaDom(displayCode, bgMode, color, toClipboard);
+  // 3. 备用保障方案：使用 html-to-image 截取真实 KaTeX DOM 元素
+  return await exportPngViaDom(latex, bgMode, color, toClipboard);
 }
 
 /**
- * 备用降级方案：使用 html-to-image 捕获真实 DOM
+ * 备用降级方案 / 混排图文截取：使用 html-to-image 捕获真实 DOM
  */
 async function exportPngViaDom(
-  displayCode: string,
+  latex: string,
   bgMode: CanvasBgMode,
   color: string,
   toClipboard: boolean
 ): Promise<{ success: boolean; message: string }> {
+  const outcome = renderFormulaSafely(latex);
+  if (!outcome.html.trim()) {
+    throw new Error('公式或混排内容为空');
+  }
+
   const host = document.createElement('div');
   host.style.position = 'fixed';
   host.style.left = '-9999px';
@@ -365,7 +376,8 @@ async function exportPngViaDom(
   host.style.padding = '28px 40px';
   host.style.display = 'inline-block';
   host.style.fontSize = '24px';
-  host.style.lineHeight = '1.4';
+  host.style.lineHeight = '1.6';
+  host.style.maxWidth = '900px';
 
   if (bgMode === 'white') host.style.backgroundColor = '#ffffff';
   else if (bgMode === 'gray') host.style.backgroundColor = '#f1f5f9';
@@ -378,15 +390,7 @@ async function exportPngViaDom(
   }
   host.style.color = resolvedColor;
 
-  katex.render(displayCode, host, {
-    displayMode: true,
-    throwOnError: false,
-    output: 'html',
-    macros: {
-      '\\placeholder': '\\Box',
-      '\\square': '\\Box',
-    },
-  });
+  host.innerHTML = outcome.html;
 
   document.body.appendChild(host);
   try {
@@ -468,10 +472,14 @@ function triggerBlobDownload(blob: Blob, filename: string) {
  * 复制 MathML 代码（直接粘贴至 Word 原生公式）
  */
 export function copyMathMl(latex: string): string {
-  const displayCode = prepareFormulaForRender(latex);
-  if (!displayCode.trim()) throw new Error('公式内容为空');
+  const modeDetect = detectFormulaMode(latex);
+  const codeToRender = modeDetect.mode === 'pure-math'
+    ? normalizePureMathForRender(modeDetect.cleanedText).normalized
+    : latex;
 
-  const mathml = katex.renderToString(displayCode, {
+  if (!codeToRender.trim()) throw new Error('公式内容为空');
+
+  const mathml = katex.renderToString(codeToRender, {
     output: 'mathml',
     throwOnError: false,
   });
@@ -481,23 +489,25 @@ export function copyMathMl(latex: string): string {
 }
 
 /**
- * 复制纯文本
+ * 复制纯文本到剪贴板
  */
-export async function copyPlainText(text: string): Promise<void> {
+export async function copyPlainText(text: string): Promise<boolean> {
   if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
     try {
       await navigator.clipboard.writeText(text);
-      return;
+      return true;
     } catch {
       // fallback
     }
   }
-  const textarea = document.createElement('textarea');
-  textarea.value = text;
-  textarea.style.position = 'fixed';
-  textarea.style.top = '-9999px';
-  document.body.appendChild(textarea);
-  textarea.select();
+
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
   document.execCommand('copy');
-  document.body.removeChild(textarea);
+  document.body.removeChild(ta);
+  return true;
 }

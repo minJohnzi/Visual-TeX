@@ -76,6 +76,11 @@ export const en: Translations = {
   syntaxValid: 'Syntax Valid',
   syntaxWarning: 'Syntax Warning (Click for info)',
   syntaxWarningHelp: 'Formula syntax parsed cleanly with display-grade rendering',
+  mixedModeBadge: 'Mixed Text & Math',
+  autoAlignedBadge: 'Auto Multi-line Aligned',
+  jumpToError: 'Jump to Error',
+  clickToJumpError: '🎯 Jump cursor & select error code',
+  lineColLabel: 'Line {line}, Col {col}',
   previewEmptyPlaceholder: '(Live mathematical preview appears here)',
   exportToolbarLabel: 'Multi-Format Export',
   copyPng: 'Copy High-Res PNG',
@@ -132,4 +137,5 @@ export const en: Translations = {
   toastClipboardUnavailable: 'Clipboard not available; please use Download instead',
   toastDelimiterSwitched: 'Math delimiters toggled',
   toastDelimiterRemoved: 'Outer delimiters removed',
+  toastJumpedToError: 'Jumped and selected error code (line {line})',
 };

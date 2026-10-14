@@ -4,7 +4,7 @@ import { SymbolPalette } from './components/SymbolPalette';
 import { FormulaEditor, type FormulaEditorHandle } from './components/FormulaEditor';
 import { FormulaPreview } from './components/FormulaPreview';
 import { CLASSIC_FORMULAS, type PaletteItem, type ClassicFormula } from './data/symbols';
-import { stripOuterMathDelimiters } from './utils/latex';
+import { stripOuterMathDelimiters, computeLineAndColumn } from './utils/latex';
 import { useI18n } from './i18n/context';
 
 const STORAGE_KEYS = {
@@ -260,6 +260,23 @@ export function App() {
     showToast(t.toastClearedHistory, 'info');
   }, [showToast, t.toastClearedHistory]);
 
+  // IDE 错误精确定位跳转
+  const handleJumpToError = useCallback(
+    (pos: number, length = 1) => {
+      if (editorRef.current) {
+        editorRef.current.jumpToPosition(pos, length);
+        const loc = computeLineAndColumn(code, pos);
+        if (loc) {
+          showToast(
+            t.toastJumpedToError.replace('{line}', String(loc.line)),
+            'info'
+          );
+        }
+      }
+    },
+    [code, showToast, t]
+  );
+
   return (
     <>
       {/* ==========================================================================
@@ -415,7 +432,11 @@ export function App() {
         />
 
         {/* SECTION 3: 实时预览与导出区 */}
-        <FormulaPreview latex={code} onToast={showToast} />
+        <FormulaPreview
+          latex={code}
+          onToast={showToast}
+          onJumpToError={handleJumpToError}
+        />
       </main>
 
       {/* ==========================================================================

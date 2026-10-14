@@ -28,6 +28,7 @@ export interface FormulaEditorHandle {
   setValue: (val: string) => void;
   focus: () => void;
   getMode: () => EditorMode;
+  jumpToPosition: (pos: number, length?: number) => void;
 }
 
 interface FormulaEditorProps {
@@ -105,6 +106,12 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
     // 3. LaTeX 渲染状态指示器（Ready | Compiling | Error）
     const [renderStatus, setRenderStatus] = useState<RenderStatus>('Ready');
     const [renderErrorMsg, setRenderErrorMsg] = useState<string>('');
+    const [lastErrorLocation, setLastErrorLocation] = useState<{
+      pos: number;
+      length: number;
+      line?: number;
+      col?: number;
+    } | null>(null);
 
     // 复制状态
     const [copiedLatex, setCopiedLatex] = useState<boolean>(false);
@@ -216,9 +223,20 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         if (outcome.success || !value.trim()) {
           setRenderStatus('Ready');
           setRenderErrorMsg('');
+          setLastErrorLocation(null);
         } else {
           setRenderStatus('Error');
           setRenderErrorMsg(outcome.errorMessage || 'Syntax error in LaTeX');
+          if (typeof outcome.errorPosition === 'number') {
+            setLastErrorLocation({
+              pos: outcome.errorPosition,
+              length: outcome.errorLength || 1,
+              line: outcome.errorLine,
+              col: outcome.errorColumn,
+            });
+          } else {
+            setLastErrorLocation(null);
+          }
         }
       }, 140);
 
@@ -288,6 +306,45 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         highlightPreRef.current.scrollLeft = ta.scrollLeft;
       }
     }, []);
+
+    // IDE 级精准光标跳转与出错代码选中
+    const jumpToPositionInternal = useCallback(
+      (pos: number, length = 1) => {
+        if (mode !== 'source') {
+          handleSwitchMode('source');
+        }
+
+        setTimeout(() => {
+          const ta = textareaRef.current;
+          if (!ta) return;
+
+          const safePos = Math.max(0, Math.min(pos, value.length));
+          const safeLen = Math.max(1, length);
+          const endPos = Math.min(value.length, safePos + safeLen);
+
+          ta.focus();
+          ta.setSelectionRange(safePos, endPos);
+
+          // 计算出错行号并平滑居中滚动
+          const textBefore = value.slice(0, safePos);
+          const lineNumber = textBefore.split('\n').length;
+          const lineHeight = 22;
+          const targetScroll = Math.max(0, (lineNumber - 3) * lineHeight);
+
+          ta.scrollTop = targetScroll;
+          syncScroll();
+
+          // 触发编辑器闪烁视觉反馈动画
+          const wrapper = ta.closest('.editor-code-container') as HTMLElement | null;
+          if (wrapper) {
+            wrapper.classList.remove('editor-error-pulse');
+            void wrapper.offsetWidth;
+            wrapper.classList.add('editor-error-pulse');
+          }
+        }, 50);
+      },
+      [mode, handleSwitchMode, value, syncScroll]
+    );
 
     // 恢复历史版本
     const handleRestoreVersion = useCallback(
@@ -582,8 +639,9 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
           }
         },
         getMode: () => mode,
+        jumpToPosition: jumpToPositionInternal,
       }),
-      [mode, onChange]
+      [mode, onChange, jumpToPositionInternal]
     );
 
     useEffect(() => {
@@ -878,15 +936,31 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
                 </span>
               )}
               {renderStatus === 'Error' && (
-                <span className="badge-error">
+                <button
+                  type="button"
+                  className="badge-error cursor-pointer hover:opacity-90 transition-opacity bg-transparent border-0 p-0 text-left inline-flex items-center gap-1"
+                  onClick={() => {
+                    if (lastErrorLocation) {
+                      jumpToPositionInternal(lastErrorLocation.pos, lastErrorLocation.length);
+                      if (lastErrorLocation.line) {
+                        onToast(
+                          t.toastJumpedToError.replace('{line}', String(lastErrorLocation.line)),
+                          'info'
+                        );
+                      }
+                    }
+                  }}
+                  title={t.clickToJumpError}
+                >
                   <span className="status-dot error" />
-                  {t.statusError}
-                  {renderErrorMsg && (
-                    <span className="text-[11px] opacity-80 max-w-[150px] truncate">
-                      ({renderErrorMsg.split('\n')[0]})
+                  <span>{t.statusError}</span>
+                  {lastErrorLocation && (
+                    <span className="underline font-semibold text-[11px] ml-0.5">
+                      {t.jumpToError}
+                      {lastErrorLocation.line ? ` (${lastErrorLocation.line}:${lastErrorLocation.col})` : ''}
                     </span>
                   )}
-                </span>
+                </button>
               )}
             </div>
           </div>

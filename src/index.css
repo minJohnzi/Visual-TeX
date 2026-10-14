@@ -1025,12 +1025,14 @@ math-field::part(virtual-keyboard-toggle) {
 
 .preview-canvas-area {
   min-height: 220px;
+  max-height: 640px;
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
   padding: 2.5rem 2rem;
   overflow-x: auto;
+  overflow-y: auto;
   transition: background-color 0.2s ease;
 }
 
@@ -1065,6 +1067,93 @@ math-field::part(virtual-keyboard-toggle) {
   transform-origin: center center;
   max-width: 100%;
   user-select: text;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.formula-render-target.is-mixed-mode {
+  width: 100%;
+  max-width: 820px;
+  text-align: left;
+  transform-origin: top left;
+}
+
+/* Mixed Markdown & Math Container */
+.mixed-content-rendered {
+  width: 100%;
+  text-align: left;
+  line-height: 1.8;
+  font-size: 1.05rem;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  color: inherit;
+}
+
+.mixed-content-rendered .mixed-paragraph {
+  margin-bottom: 0.85rem;
+}
+
+.mixed-content-rendered .katex-display-block {
+  margin: 1rem 0;
+  text-align: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.35rem 0;
+}
+
+.mixed-content-rendered .katex-inline-block {
+  display: inline-block;
+  vertical-align: middle;
+  margin: 0 0.15rem;
+}
+
+.mixed-content-rendered strong {
+  font-weight: 700;
+  color: inherit;
+}
+
+.mixed-content-rendered em {
+  font-style: italic;
+}
+
+.mixed-content-rendered code.inline-code {
+  font-family: var(--font-mono);
+  background: rgba(100, 116, 139, 0.15);
+  border: 1px solid var(--border-subtle);
+  padding: 0.12rem 0.35rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.88em;
+}
+
+.mixed-content-rendered h1.mixed-h1 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin: 1.1rem 0 0.45rem;
+  color: inherit;
+}
+
+.mixed-content-rendered h2.mixed-h2 {
+  font-size: 1.18rem;
+  font-weight: 700;
+  margin: 0.95rem 0 0.4rem;
+  color: inherit;
+}
+
+.mixed-content-rendered h3.mixed-h3 {
+  font-size: 1.06rem;
+  font-weight: 600;
+  margin: 0.8rem 0 0.35rem;
+  color: inherit;
+}
+
+.mixed-content-rendered .katex-error-snippet {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.1);
+  padding: 0.1rem 0.3rem;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
 }
 
 .syntax-status-badge {
@@ -1089,6 +1178,18 @@ math-field::part(virtual-keyboard-toggle) {
   border: 1px solid rgba(16, 185, 129, 0.3);
 }
 
+.syntax-status-badge.badge-mixed {
+  background: rgba(124, 58, 237, 0.15);
+  color: #7c3aed;
+  border: 1px solid rgba(124, 58, 237, 0.3);
+}
+
+.syntax-status-badge.badge-aligned {
+  background: rgba(37, 99, 235, 0.15);
+  color: #2563eb;
+  border: 1px solid rgba(37, 99, 235, 0.3);
+}
+
 .syntax-status-badge.error {
   background: rgba(239, 68, 68, 0.15);
   color: #dc2626;
@@ -1100,6 +1201,14 @@ math-field::part(virtual-keyboard-toggle) {
   color: #34d399;
 }
 
+[data-theme="dark"] .syntax-status-badge.badge-mixed {
+  color: #a78bfa;
+}
+
+[data-theme="dark"] .syntax-status-badge.badge-aligned {
+  color: #60a5fa;
+}
+
 [data-theme="dark"] .syntax-status-badge.error {
   color: #f87171;
 }
@@ -1109,22 +1218,114 @@ math-field::part(virtual-keyboard-toggle) {
   position: absolute;
   top: 2.5rem;
   right: 0.75rem;
-  max-width: 380px;
+  max-width: 400px;
+  width: calc(100% - 1.5rem);
   background: var(--bg-surface-elevated);
   border: 1px solid var(--danger);
-  padding: 0.75rem 1rem;
+  padding: 0.85rem 1rem;
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg), 0 8px 24px rgba(239, 68, 68, 0.15);
   font-size: 0.78rem;
   color: var(--danger);
-  z-index: 20;
-  font-family: var(--font-mono);
-  white-space: pre-wrap;
-  word-break: break-all;
+  z-index: 25;
+  backdrop-filter: blur(10px);
 }
 
 .syntax-error-detail.show {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  animation: dropdownFadeIn 0.15s ease-out;
+}
+
+.syntax-error-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.error-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: var(--danger);
+}
+
+.error-pos-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.5rem;
+  background: rgba(239, 68, 68, 0.14);
+  color: var(--danger);
+  border: 1px solid rgba(239, 68, 68, 0.28);
+  border-radius: 9999px;
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.syntax-error-msg {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--text-main);
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.65rem;
+}
+
+.btn-jump-error-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.85rem;
+  background: #dc2626;
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 3px rgba(220, 38, 38, 0.3);
+}
+
+.btn-jump-error-action:hover {
+  background: #b91c1c;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(220, 38, 38, 0.4);
+}
+
+.btn-jump-error-action:active {
+  transform: translateY(0);
+}
+
+/* IDE 光标跳转定位时的视觉聚焦呼吸动画 */
+@keyframes errorPulseBorder {
+  0% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+    border-color: #ef4444;
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.35);
+    border-color: #ef4444;
+  }
+  100% {
+    box-shadow: none;
+  }
+}
+
+.editor-code-container.editor-error-pulse {
+  animation: errorPulseBorder 1.2s ease-out;
 }
 
 .export-toolbar {

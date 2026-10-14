@@ -76,6 +76,11 @@ export interface Translations {
   syntaxValid: string;
   syntaxWarning: string;
   syntaxWarningHelp: string;
+  mixedModeBadge: string;
+  autoAlignedBadge: string;
+  jumpToError: string;
+  clickToJumpError: string;
+  lineColLabel: string;
   previewEmptyPlaceholder: string;
   exportToolbarLabel: string;
   copyPng: string;
@@ -132,4 +137,5 @@ export interface Translations {
   toastClipboardUnavailable: string;
   toastDelimiterSwitched: string;
   toastDelimiterRemoved: string;
+  toastJumpedToError: string;
 }

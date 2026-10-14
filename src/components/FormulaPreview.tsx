@@ -12,6 +12,7 @@ import { useI18n } from '../i18n/context';
 interface FormulaPreviewProps {
   latex: string;
   onToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
+  onJumpToError?: (pos: number, length?: number) => void;
 }
 
 const SCALE_LIST = [
@@ -22,7 +23,11 @@ const SCALE_LIST = [
   { scale: 3, label: '300%' },
 ];
 
-export const FormulaPreview: React.FC<FormulaPreviewProps> = ({ latex, onToast }) => {
+export const FormulaPreview: React.FC<FormulaPreviewProps> = ({
+  latex,
+  onToast,
+  onJumpToError,
+}) => {
   const { t } = useI18n();
   const [scale, setScale] = useState<number>(1.5);
   const [bgMode, setBgMode] = useState<CanvasBgMode>('checker');
@@ -216,19 +221,53 @@ export const FormulaPreview: React.FC<FormulaPreviewProps> = ({ latex, onToast }
       <div className={`preview-canvas-area canvas-bg-${bgMode}`}>
         {/* 角落语法状态角标 */}
         <div
-          className={`syntax-status-badge ${isOk ? 'ok' : 'error'}`}
+          className={`syntax-status-badge ${isOk ? (outcome.isMixed ? 'badge-mixed' : outcome.wasAutoAligned ? 'badge-aligned' : 'ok') : 'error'}`}
           onClick={() => {
-            if (!isOk) setShowErrorDetail((prev) => !prev);
+            if (!isOk) {
+              setShowErrorDetail((prev) => !prev);
+              if (onJumpToError && typeof outcome.errorPosition === 'number') {
+                onJumpToError(outcome.errorPosition, outcome.errorLength || 1);
+              }
+            }
           }}
-          title={isOk ? t.syntaxValid : t.syntaxWarning}
+          title={
+            !isOk
+              ? `${t.syntaxWarning} (${t.clickToJumpError})`
+              : outcome.isMixed
+              ? t.mixedModeBadge
+              : outcome.wasAutoAligned
+              ? t.autoAlignedBadge
+              : t.syntaxValid
+          }
         >
           {isOk ? (
-            <>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              <span>{t.syntaxValid}</span>
-            </>
+            outcome.isMixed ? (
+              <>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="16" y1="13" x2="8" y2="13" />
+                  <line x1="16" y1="17" x2="8" y2="17" />
+                </svg>
+                <span>{t.mixedModeBadge}</span>
+              </>
+            ) : outcome.wasAutoAligned ? (
+              <>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="21" y1="6" x2="3" y2="6" />
+                  <line x1="15" y1="12" x2="3" y2="12" />
+                  <line x1="17" y1="18" x2="3" y2="18" />
+                </svg>
+                <span>{t.autoAlignedBadge}</span>
+              </>
+            ) : (
+              <>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                <span>{t.syntaxValid}</span>
+              </>
+            )
           ) : (
             <>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -243,12 +282,52 @@ export const FormulaPreview: React.FC<FormulaPreviewProps> = ({ latex, onToast }
 
         {/* 语法错误详情气泡 */}
         <div className={`syntax-error-detail ${showErrorDetail && !isOk ? 'show' : ''}`}>
-          {outcome.errorMessage || 'Syntax issue detected; lenient fallback rendering applied.'}
+          <div className="syntax-error-header">
+            <span className="error-title">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              <span>{t.syntaxWarning}</span>
+            </span>
+            {typeof outcome.errorLine === 'number' && typeof outcome.errorColumn === 'number' && (
+              <span className="error-pos-pill">
+                {t.lineColLabel
+                  .replace('{line}', String(outcome.errorLine))
+                  .replace('{col}', String(outcome.errorColumn))}
+              </span>
+            )}
+          </div>
+
+          <div className="syntax-error-msg">
+            {outcome.errorMessage || 'Syntax issue detected; lenient fallback rendering applied.'}
+          </div>
+
+          {typeof outcome.errorPosition === 'number' && onJumpToError && (
+            <button
+              type="button"
+              className="btn-jump-error-action"
+              onClick={(e) => {
+                e.stopPropagation();
+                onJumpToError(outcome.errorPosition!, outcome.errorLength || 1);
+              }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="22" y1="12" x2="18" y2="12" />
+                <line x1="6" y1="12" x2="2" y2="12" />
+                <line x1="12" y1="6" x2="12" y2="2" />
+                <line x1="12" y1="22" x2="12" y2="18" />
+              </svg>
+              <span>{t.clickToJumpError}</span>
+            </button>
+          )}
         </div>
 
         {/* 渲染公式目标 */}
         <div
-          className="formula-render-target"
+          className={`formula-render-target ${outcome.isMixed ? 'is-mixed-mode' : ''}`}
           style={{
             transform: `scale(${scale})`,
             color: color === 'default' ? undefined : color,
