@@ -21,6 +21,9 @@ export const zh: Translations = {
   // Palette
   paletteTitle: '数学符号与模板选择器',
   clickToInsert: '点击插入模板',
+  collapsePalette: '折叠面板',
+  expandPalette: '展开符号',
+  paletteToggleTooltip: '折叠/展开符号面板 (释放屏幕编辑空间)',
 
   // Editor
   editorTitle: 'LaTeX 公式输入与源码编辑器',

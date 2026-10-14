@@ -660,7 +660,8 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
                   <circle cx="12" cy="12" r="10" />
                   <polyline points="12 6 12 12 16 14" />
                 </svg>
-                <span>{t.versionHistoryBtn} ({versionHistory.length})</span>
+                <span className="hidden sm:inline">{t.versionHistoryBtn}</span>
+                <span>({versionHistory.length})</span>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="m6 9 6 6 6-6" />
                 </svg>
@@ -706,11 +707,12 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
                 onClick={handleStepBack}
                 disabled={historyIndex <= 0}
                 title={`${t.historyStepBackTooltip} (${historyIndex + 1}/${historyStack.length})`}
+                aria-label={t.historyStepBack}
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="m15 18-6-6 6-6" />
                 </svg>
-                <span>{t.historyStepBack}</span>
+                <span className="hidden md:inline">{t.historyStepBack}</span>
               </button>
 
               <span className="px-1.5 text-[11px] text-slate-400 font-mono select-none">
@@ -723,8 +725,9 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
                 onClick={handleStepForward}
                 disabled={historyIndex >= historyStack.length - 1}
                 title={`${t.historyStepForwardTooltip} (${historyIndex + 1}/${historyStack.length})`}
+                aria-label={t.historyStepForward}
               >
-                <span>{t.historyStepForward}</span>
+                <span className="hidden md:inline">{t.historyStepForward}</span>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="m9 18 6-6-6-6" />
                 </svg>
@@ -741,6 +744,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
               }`}
               onClick={handleCopyLatex}
               title={t.copyLatexTooltip}
+              aria-label={t.copyLatex}
               disabled={!value.trim()}
               style={{ opacity: !value.trim() ? 0.45 : 1 }}
             >
@@ -754,7 +758,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
                   <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
                 </svg>
               )}
-              <span>{copiedLatex ? (isZh ? '已复制' : 'Copied!') : t.copyLatex}</span>
+              <span className="hidden sm:inline">{copiedLatex ? (isZh ? '已复制' : 'Copied!') : t.copyLatex}</span>
             </button>
 
             <button
@@ -762,12 +766,13 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
               className="btn btn-sm"
               onClick={handleToggleDelimiters}
               title="切换外层数学定界符模式"
+              aria-label="切换外层数学定界符模式"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="12" y1="2" x2="12" y2="22" />
                 <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
               </svg>
-              <span>
+              <span className="hidden md:inline">
                 {delimiterMode === 'none'
                   ? t.delimitersNone
                   : delimiterMode === 'inline'
@@ -781,6 +786,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
               className="btn btn-sm"
               onClick={handleFormat}
               title="清除行末多余空格"
+              aria-label={t.formatCode}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="21" y1="10" x2="7" y2="10" />
@@ -788,7 +794,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
                 <line x1="21" y1="14" x2="3" y2="14" />
                 <line x1="21" y1="18" x2="7" y2="18" />
               </svg>
-              <span>{t.formatCode}</span>
+              <span className="hidden sm:inline">{t.formatCode}</span>
             </button>
 
             <button
@@ -796,6 +802,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
               className="btn btn-sm"
               onClick={handleClear}
               title="清空当前输入区"
+              aria-label={t.clearCode}
               disabled={!value}
               style={{ opacity: !value ? 0.45 : 1 }}
             >
@@ -804,7 +811,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
                 <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
                 <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
               </svg>
-              <span>{t.clearCode}</span>
+              <span className="hidden sm:inline">{t.clearCode}</span>
             </button>
           </div>
         </div>

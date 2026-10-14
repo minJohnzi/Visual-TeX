@@ -260,8 +260,10 @@ export async function exportPng(
   try {
     const { svg, cssWidth, cssHeight } = await getFormulaSvgElement(latex, color, bgMode);
 
-    // 设定 3.0x 高分超清采样率
-    const dpr = 3.0;
+    // 动态兼顾高分屏与印刷级采样率 (至少 3.0x，在视网膜高分屏或高缩放倍率下自适应保证极致锐利无锯齿)
+    const dpr = typeof window !== 'undefined'
+      ? Math.max(window.devicePixelRatio || 1, 3.0)
+      : 3.0;
     let drawW = Math.round(cssWidth * dpr);
     let drawH = Math.round(cssHeight * dpr);
 
@@ -388,8 +390,11 @@ async function exportPngViaDom(
 
   document.body.appendChild(host);
   try {
+    const dpr = typeof window !== 'undefined'
+      ? Math.max(window.devicePixelRatio || 1, 3.0)
+      : 3.0;
     const blob = await htmlToImageToBlob(host, {
-      pixelRatio: 3,
+      pixelRatio: dpr,
       backgroundColor:
         bgMode === 'white'
           ? '#ffffff'

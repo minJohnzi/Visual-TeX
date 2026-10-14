@@ -21,6 +21,9 @@ export interface Translations {
   // Palette
   paletteTitle: string;
   clickToInsert: string;
+  collapsePalette: string;
+  expandPalette: string;
+  paletteToggleTooltip: string;
 
   // Editor
   editorTitle: string;

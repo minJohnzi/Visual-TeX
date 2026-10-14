@@ -21,6 +21,9 @@ export const en: Translations = {
   // Palette
   paletteTitle: 'Math Symbols & Template Palette',
   clickToInsert: 'Click to insert template',
+  collapsePalette: 'Collapse',
+  expandPalette: 'Expand',
+  paletteToggleTooltip: 'Toggle symbol palette (free up editor vertical space)',
 
   // Editor
   editorTitle: 'LaTeX Formula Input & Source Editor',

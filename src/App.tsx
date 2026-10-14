@@ -287,7 +287,7 @@ export function App() {
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="20 6 9 17 4 12" />
             </svg>
-            <span>{t.draftSaved}</span>
+            <span className="hidden md:inline">{t.draftSaved}</span>
           </div>
 
           {/* 经典示例按钮 */}
@@ -296,13 +296,14 @@ export function App() {
             className="btn btn-sm"
             onClick={() => setShowExamplesModal(true)}
             title={t.classicExamplesTooltip}
+            aria-label={t.classicExamples}
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z" />
               <path d="M6 6h10" />
               <path d="M6 10h10" />
             </svg>
-            <span>{t.classicExamples}</span>
+            <span className="hidden sm:inline">{t.classicExamples}</span>
           </button>
 
           {/* 历史记录按钮 */}
@@ -311,12 +312,13 @@ export function App() {
             className="btn btn-sm"
             onClick={() => setShowHistoryModal(true)}
             title={t.historyTooltip}
+            aria-label={t.history}
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="10" />
               <polyline points="12 6 12 12 16 14" />
             </svg>
-            <span>{t.history}</span>
+            <span className="hidden sm:inline">{t.history}</span>
           </button>
 
           {/* 帮助按钮 */}
@@ -325,13 +327,14 @@ export function App() {
             className="btn btn-sm"
             onClick={() => setShowHelpModal(true)}
             title={t.helpTooltip}
+            aria-label={t.help}
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="10" />
               <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
               <line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
-            <span>{t.help}</span>
+            <span className="hidden sm:inline">{t.help}</span>
           </button>
 
           {/* 下载独立 HTML */}
@@ -340,13 +343,14 @@ export function App() {
             className="btn btn-sm"
             onClick={handleDownloadSingleHtml}
             title={t.offlineHtmlTooltip}
+            aria-label={t.offlineHtml}
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
               <polyline points="7 10 12 15 17 10" />
               <line x1="12" y1="15" x2="12" y2="3" />
             </svg>
-            <span>{t.offlineHtml}</span>
+            <span className="hidden md:inline">{t.offlineHtml}</span>
           </button>
 
           {/* 国际化双语切换按钮 (ZH / EN) */}
@@ -396,8 +400,9 @@ export function App() {
 
       {/* ==========================================================================
           Main Workspace Layout (Vertical Streamlined Flow)
+          2K/4K max-width constraint + mobile padding
           ========================================================================== */}
-      <main className="workspace-container">
+      <main className="workspace-container max-w-5xl xl:max-w-6xl mx-auto w-full px-3 sm:px-6 py-4">
         {/* SECTION 1: 符号与模板选择器面板 */}
         <SymbolPalette onSelectItem={handleSelectPaletteItem} />
 
