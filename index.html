@@ -13,7 +13,7 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:url" content="https://visual-tex.ai.studio" />
     <!-- KaTeX CSS for live rendering -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous" />
     <!-- MathJax 3 for standalone vector SVG generation -->
     <script>
       window.MathJax = {
@@ -28,8 +28,16 @@
           typeset: false
         }
       };
+      function loadMathJaxFallback() {
+        if (!window.MathJax || typeof window.MathJax.tex2svg !== 'function') {
+          var s = document.createElement('script');
+          s.id = 'MathJax-script-fallback';
+          s.src = 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.min.js';
+          document.head.appendChild(s);
+        }
+      }
     </script>
-    <script defer id="MathJax-script" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+    <script defer id="MathJax-script" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" onerror="loadMathJaxFallback()"></script>
   </head>
   <body>
     <div id="root"></div>

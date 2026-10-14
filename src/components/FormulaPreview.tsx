@@ -55,7 +55,7 @@ export const FormulaPreview: React.FC<FormulaPreviewProps> = ({ latex, onToast }
     onToast(t.toastGeneratingPng, 'info');
     try {
       const res = await exportPng(latex, bgMode, color, true);
-      onToast(t.toastCopiedPng || res.message, 'success');
+      onToast(res.message || t.toastCopiedPng, 'success');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : t.toastClipboardUnavailable;
       onToast(msg, 'error');
@@ -72,7 +72,7 @@ export const FormulaPreview: React.FC<FormulaPreviewProps> = ({ latex, onToast }
     setIsExporting(true);
     try {
       const res = await exportPng(latex, bgMode, color, false);
-      onToast(t.toastDownloadedPng || res.message, 'success');
+      onToast(res.message || t.toastDownloadedPng, 'success');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Download failed';
       onToast(msg, 'error');
