@@ -1190,6 +1190,12 @@ math-field::part(virtual-keyboard-toggle) {
   border: 1px solid rgba(37, 99, 235, 0.3);
 }
 
+.syntax-status-badge.badge-fixed {
+  background: rgba(14, 165, 233, 0.15);
+  color: #0284c7;
+  border: 1px solid rgba(14, 165, 233, 0.3);
+}
+
 .syntax-status-badge.error {
   background: rgba(239, 68, 68, 0.15);
   color: #dc2626;
@@ -1656,3 +1662,409 @@ math-field::part(virtual-keyboard-toggle) {
     padding: 0.75rem calc((100vw - 1200px) / 2 + 1.5rem);
   }
 }
+
+/* ==========================================================================
+   Mobile Sticky Preview Protection (< 768px)
+   ========================================================================== */
+@media (max-width: 768px) {
+  .preview-panel {
+    position: sticky;
+    top: 0.5rem;
+    z-index: 20;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.15), 0 2px 6px -1px rgba(0, 0, 0, 0.08);
+  }
+  .preview-panel .preview-canvas-area {
+    min-height: 120px;
+    max-height: 200px;
+    padding: 1.25rem 0.75rem;
+  }
+}
+
+/* ==========================================================================
+   Matrix Tools Bar & Dynamic Grid Dimension Selector
+   ========================================================================== */
+.matrix-tools-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-hover);
+  border-bottom: 1px solid var(--border-color);
+  gap: 0.5rem;
+  position: relative;
+}
+
+.matrix-tools-left,
+.matrix-tools-right {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.matrix-picker-popover {
+  position: absolute;
+  top: 100%;
+  left: 0.75rem;
+  margin-top: 0.4rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.25), 0 8px 10px -6px rgba(0, 0, 0, 0.15);
+  padding: 0.75rem;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: 230px;
+}
+
+.matrix-picker-types {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.3rem;
+}
+
+.matrix-type-btn {
+  font-size: 0.75rem;
+  padding: 0.3rem 0.45rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-main);
+  color: var(--text-main);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.matrix-type-btn:hover {
+  border-color: var(--primary);
+}
+
+.matrix-type-btn.active {
+  background: var(--primary);
+  color: #ffffff;
+  border-color: var(--primary);
+  font-weight: 600;
+}
+
+.matrix-grid-cells {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0.35rem;
+  background: var(--bg-main);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  align-items: center;
+}
+
+.matrix-grid-row {
+  display: flex;
+  gap: 3px;
+}
+
+.matrix-grid-cell {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1.5px solid var(--border-color);
+  background: var(--bg-card);
+  cursor: pointer;
+  transition: background-color 0.1s ease, border-color 0.1s ease;
+  padding: 0;
+}
+
+.matrix-grid-cell.hovered {
+  background: var(--primary);
+  border-color: var(--primary-hover);
+  box-shadow: 0 0 4px rgba(37, 99, 235, 0.4);
+}
+
+.matrix-picker-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.matrix-dim-text {
+  font-weight: 600;
+  color: var(--primary);
+}
+
+/* ==========================================================================
+   Zoom Controls & Fit to Width
+   ========================================================================== */
+.zoom-action-group {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-hover);
+  padding: 2px;
+  gap: 2px;
+}
+
+.zoom-step-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-main);
+  border-radius: 6px;
+}
+
+.zoom-step-btn:hover {
+  background: var(--bg-card);
+}
+
+.zoom-value-btn {
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border: none;
+  background: transparent;
+  color: var(--text-main);
+  border-radius: 6px;
+}
+
+.zoom-value-btn:hover,
+.zoom-value-btn.active {
+  background: var(--bg-card);
+  color: var(--primary);
+}
+
+.btn-fit-width {
+  font-size: 0.76rem;
+  padding: 0.2rem 0.55rem;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  transition: all 0.15s ease;
+}
+
+.btn-fit-width:hover {
+  background: var(--bg-card);
+  color: var(--text-main);
+}
+
+.btn-fit-width.active {
+  background: var(--primary);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   Export Modal Styles
+   ========================================================================== */
+.export-settings-modal {
+  width: 100%;
+}
+
+.export-field-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 0.45rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.export-format-pills {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+}
+
+.export-format-pill {
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-hover);
+  color: var(--text-main);
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  transition: all 0.15s ease;
+}
+
+.export-format-pill:hover {
+  border-color: var(--primary);
+}
+
+.export-format-pill.active {
+  border-color: var(--primary);
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.export-format-pill.active strong {
+  color: var(--primary);
+}
+
+.export-format-pill strong {
+  font-size: 0.95rem;
+}
+
+.export-format-pill small {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  line-height: 1.25;
+}
+
+.export-scale-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.45rem;
+}
+
+.export-radio-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-hover);
+  cursor: pointer;
+  font-size: 0.78rem;
+  transition: all 0.15s ease;
+}
+
+.export-radio-item.selected {
+  border-color: var(--primary);
+  background: rgba(37, 99, 235, 0.08);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.export-bg-options {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.4rem;
+}
+
+.export-bg-tile {
+  height: 44px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.export-bg-tile.active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
+.export-color-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.export-color-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 7px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-hover);
+  color: var(--text-main);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.export-color-pill.active {
+  border-color: var(--primary);
+  background: rgba(37, 99, 235, 0.1);
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.color-swatch-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+.export-halo-box {
+  background: rgba(37, 99, 235, 0.06);
+  border: 1px dashed var(--primary);
+  border-radius: 8px;
+  padding: 0.65rem 0.85rem;
+}
+
+.halo-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--text-main);
+}
+
+.halo-desc {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: 0.25rem 0 0 1.5rem;
+  line-height: 1.4;
+}
+
+.export-preview-box {
+  position: relative;
+  margin-top: 0.5rem;
+}
+
+.export-preview-badge {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.75rem;
+  font-size: 0.7rem;
+  background: rgba(0, 0, 0, 0.6);
+  color: #f8fafc;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  z-index: 10;
+}
+
+.export-mini-canvas {
+  min-height: 120px;
+  max-height: 180px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  overflow: auto;
+}
+
+.export-mini-formula {
+  font-size: 1.25rem;
+  text-align: center;
+  transition: filter 0.15s ease;
+}
+

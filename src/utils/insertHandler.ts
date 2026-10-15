@@ -317,3 +317,107 @@ export function smartInsertIntoTextarea(
   const nextValue = before + inserted + after;
   return { nextValue, cursorStart: focusStart, cursorEnd: focusEnd };
 }
+
+export type MatrixType = 'pmatrix' | 'bmatrix' | 'vmatrix' | 'cases';
+
+/**
+ * 动态根据行列数 (m × n) 生成标准 LaTeX 矩阵/方程组模板
+ */
+export function generateMatrixTemplate(
+  type: MatrixType,
+  rows: number,
+  cols: number
+): { latex: string; display: string; mathliveSnippet: string } {
+  const safeRows = Math.max(1, Math.min(6, rows));
+  const safeCols = Math.max(1, Math.min(6, cols));
+
+  const rowStrings: string[] = [];
+  const mathliveRowStrings: string[] = [];
+
+  for (let r = 0; r < safeRows; r++) {
+    const cells = Array(safeCols).fill('\\placeholder{}').join(' & ');
+    const mlCells = Array(safeCols).fill('#?').join(' & ');
+    const isLast = r === safeRows - 1;
+    rowStrings.push(`  ${cells}${isLast ? '' : ' \\\\'}`);
+    mathliveRowStrings.push(`${mlCells}${isLast ? '' : ' \\\\'}`);
+  }
+
+  const inner = rowStrings.join('\n');
+  const mlInner = mathliveRowStrings.join(' ');
+  const latex = `\\begin{${type}}\n${inner}\n\\end{${type}}`;
+  const mathliveSnippet = `\\begin{${type}} ${mlInner} \\end{${type}}`;
+  const display = `\\begin{${type}} ${safeRows > 1 ? `\\dots` : `\\Box`} \\end{${type}}`;
+
+  return { latex, display, mathliveSnippet };
+}
+
+/**
+ * 在现有公式代码中的矩阵或对齐环境中追加一行
+ */
+export function appendMatrixRow(code: string): string {
+  const envRegex = /\\begin\{(pmatrix|bmatrix|vmatrix|matrix|cases|aligned)\}([\s\S]*?)\\end\{\1\}/i;
+  const match = code.match(envRegex);
+
+  if (!match) {
+    // 若当前公式无环境，检测是否有内容
+    const trimmed = code.trim();
+    if (!trimmed) {
+      return `\\begin{pmatrix}\n  \\placeholder{} & \\placeholder{} \\\\\n  \\placeholder{} & \\placeholder{}\n\\end{pmatrix}`;
+    }
+    return `${trimmed} \\\\\n\\placeholder{}`;
+  }
+
+  const fullMatched = match[0];
+  const envType = match[1];
+  const innerContent = match[2];
+
+  // 估算当前矩阵最后一行的列数（根据 & 数量 + 1）
+  const lines = innerContent.trim().split('\\\\');
+  const lastLine = lines[lines.length - 1] || '';
+  const colCount = Math.max(1, (lastLine.match(/(^|[^\\])&/g) || []).length + 1);
+
+  const newRowCells = Array(colCount).fill('\\placeholder{}').join(' & ');
+  const trimmedInner = innerContent.trimEnd();
+  const needsBreak = !trimmedInner.endsWith('\\\\');
+  const updatedInner = `${trimmedInner}${needsBreak ? ' \\\\\n  ' : '\n  '}${newRowCells}\n`;
+
+  const updatedEnv = `\\begin{${envType}}${updatedInner}\\end{${envType}}`;
+  return code.replace(fullMatched, updatedEnv);
+}
+
+/**
+ * 在现有公式代码中的矩阵或对齐环境中追加一列
+ */
+export function appendMatrixCol(code: string): string {
+  const envRegex = /\\begin\{(pmatrix|bmatrix|vmatrix|matrix|cases|aligned)\}([\s\S]*?)\\end\{\1\}/i;
+  const match = code.match(envRegex);
+
+  if (!match) {
+    const trimmed = code.trim();
+    if (!trimmed) {
+      return `\\begin{pmatrix}\n  \\placeholder{} & \\placeholder{} \\\\\n  \\placeholder{} & \\placeholder{}\n\\end{pmatrix}`;
+    }
+    return `${trimmed} & \\placeholder{}`;
+  }
+
+  const fullMatched = match[0];
+  const envType = match[1];
+  const innerContent = match[2];
+
+  // 为每一行末尾添加 " & \placeholder{}"
+  const lines = innerContent.split('\n');
+  const updatedLines = lines.map((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return line;
+
+    if (trimmed.endsWith('\\\\')) {
+      const beforeBreak = trimmed.slice(0, -2).trimEnd();
+      return `  ${beforeBreak} & \\placeholder{} \\\\`;
+    }
+    return `  ${trimmed} & \\placeholder{}`;
+  });
+
+  const updatedEnv = `\\begin{${envType}}\n${updatedLines.join('\n')}\n\\end{${envType}}`;
+  return code.replace(fullMatched, updatedEnv);
+}
+

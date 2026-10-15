@@ -3,6 +3,7 @@ export type Language = 'zh' | 'en';
 export interface Translations {
   // Brand & Nav
   appName: string;
+  appSubtitle: string;
   draftSaved: string;
   draftSavedTooltip: string;
   classicExamples: string;
@@ -24,6 +25,12 @@ export interface Translations {
   collapsePalette: string;
   expandPalette: string;
   paletteToggleTooltip: string;
+  searchPlaceholder: string;
+  searchShortcut: string;
+  searchResultsCount: string;
+  noSearchResults: string;
+  pressEnterToInsert: string;
+  clearSearch: string;
 
   // Editor
   editorTitle: string;
@@ -48,6 +55,11 @@ export interface Translations {
   copyCode: string;
   copiedCode: string;
   copyCodeTooltip: string;
+  copyFormatOptions: string;
+  copyRawLatex: string;
+  copyInlineMath: string;
+  copyBlockMath: string;
+  copyShareLink: string;
   editorPlaceholder: string;
   charCount: string;
   estLineCount: string;
@@ -78,11 +90,67 @@ export interface Translations {
   syntaxWarningHelp: string;
   mixedModeBadge: string;
   autoAlignedBadge: string;
+  autoAdaptedBadge: string;
+  autoAdaptedTooltip: string;
+  autoFixAction: string;
+  autoFixTooltip: string;
   jumpToError: string;
   clickToJumpError: string;
   lineColLabel: string;
   previewEmptyPlaceholder: string;
   exportToolbarLabel: string;
+  exportAdvancedBtn: string;
+  exportAdvancedTooltip: string;
+  exportModalTitle: string;
+  exportResolution: string;
+  exportScale1x: string;
+  exportScale2x: string;
+  exportScale3x: string;
+  exportScale4x: string;
+  exportScale5x: string;
+  exportPadding: string;
+  exportPaddingCompact: string;
+  exportPaddingNormal: string;
+  exportPaddingRelaxed: string;
+  exportTextColor: string;
+  exportColorDefault: string;
+  exportColorBlack: string;
+  exportColorWhite: string;
+  exportColorBlue: string;
+  exportAdaptiveHalo: string;
+  exportAdaptiveHaloDesc: string;
+  exportBgLabel: string;
+  exportActionDownloadPng: string;
+  exportActionCopyPng: string;
+  exportActionDownloadSvg: string;
+  exportActionCopySvg: string;
+  close: string;
+
+  // Zoom & Fit
+  fitToWidth: string;
+  fitToWidthTooltip: string;
+  zoomIn: string;
+  zoomOut: string;
+  zoomReset: string;
+
+  // Matrix Generator & Quick Ops
+  matrixDimensionSelector: string;
+  matrixDimensionHint: string;
+  matrixAddRow: string;
+  matrixAddRowTooltip: string;
+  matrixAddCol: string;
+  matrixAddColTooltip: string;
+
+  // Punctuation, CJK & Auto Clean
+  normalizePunctuation: string;
+  normalizePunctuationTooltip: string;
+  cleanAndFormat: string;
+  cleanAndFormatTooltip: string;
+  toastNormalizedSuccess: string;
+  toastAutoCleaned: string;
+  autoFixedBadge: string;
+  autocompleteHint: string;
+  loadingMathJax: string;
   copyPng: string;
   copyPngTooltip: string;
   downloadPng: string;
@@ -96,13 +164,28 @@ export interface Translations {
   copyLatex: string;
   copyLatexTooltip: string;
 
-  // Modals
+  // Modals & Favorites
   classicModalTitle: string;
+  tabClassic: string;
+  tabFavorites: string;
+  favoriteFormula: string;
+  unfavoriteFormula: string;
+  favoritesEmpty: string;
   loadFormula: string;
   historyModalTitle: string;
   clearHistory: string;
   noHistory: string;
   restoreFormula: string;
+  starFormula: string;
+  unstarFormula: string;
+  starredOnly: string;
+  allHistory: string;
+  addNote: string;
+  editNote: string;
+  notePlaceholder: string;
+  saveNote: string;
+  cancelNote: string;
+  deleteHistoryItem: string;
   helpModalTitle: string;
   helpIntro: string;
   shortcutsTitle: string;
@@ -138,4 +221,11 @@ export interface Translations {
   toastDelimiterSwitched: string;
   toastDelimiterRemoved: string;
   toastJumpedToError: string;
+  toastAutoFixed: string;
+  toastCopiedShareLink: string;
+  toastLoadedFromUrl: string;
+  toastStarredFormula: string;
+  toastUnstarredFormula: string;
+  toastFavorited: string;
+  toastUnfavorited: string;
 }

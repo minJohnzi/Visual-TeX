@@ -135,6 +135,202 @@ export function detectFormulaMode(rawText: string): {
 }
 
 /**
+ * 遍历 LaTeX 源码，区分数学模式与已有文本/注释块（\text{...}, \mbox{...}, %...），
+ * 仅对纯数学模式片段执行自定义转换变换函数
+ */
+export function transformMathModeOnly(
+  latex: string,
+  transformMath: (mathChunk: string) => string
+): string {
+  if (!latex) return '';
+
+  let result = '';
+  let i = 0;
+  const len = latex.length;
+
+  while (i < len) {
+    // 1. LaTeX 注释：% 直到本行行末
+    if (latex[i] === '%') {
+      const nextNewline = latex.indexOf('\n', i);
+      if (nextNewline === -1) {
+        result += latex.slice(i);
+        break;
+      } else {
+        result += latex.slice(i, nextNewline + 1);
+        i = nextNewline + 1;
+        continue;
+      }
+    }
+
+    // 2. 文本模式命令：\text{, \mbox{, \mathrm{, \mathbf{, \textbf{, \textit{, \textnormal{, \textsf{, \texttt{
+    const textCmdMatch = latex
+      .slice(i)
+      .match(/^\\(text|mbox|mathrm|mathbf|textbf|textit|textnormal|textsf|texttt)\*?\{/);
+
+    if (textCmdMatch) {
+      const prefix = textCmdMatch[0];
+      const startBrace = i + prefix.length;
+      let depth = 1;
+      let j = startBrace;
+      while (j < len && depth > 0) {
+        if (latex[j] === '\\') {
+          j += 2;
+          continue;
+        }
+        if (latex[j] === '{') depth++;
+        else if (latex[j] === '}') depth--;
+        j++;
+      }
+      // 文本块保持原样
+      result += latex.slice(i, j);
+      i = j;
+      continue;
+    }
+
+    // 3. 收集一段连续的数学模式字符，直到下一个 % 或文本模式命令
+    let j = i;
+    while (j < len) {
+      if (latex[j] === '%') break;
+      if (
+        latex
+          .slice(j)
+          .match(/^\\(text|mbox|mathrm|mathbf|textbf|textit|textnormal|textsf|texttt)\*?\{/)
+      ) {
+        break;
+      }
+      j++;
+    }
+
+    const mathChunk = latex.slice(i, j);
+    result += transformMath(mathChunk);
+    i = j;
+  }
+
+  return result;
+}
+
+/**
+ * 将公式中的中文全角标点符号智能转换为标准 LaTeX 半角符号
+ * （仅在非 \text{...} 模式中转换，避免破坏纯文本说明）
+ */
+export function normalizeFullwidthPunctuation(latex: string): string {
+  const map: Record<string, string> = {
+    '（': '(',
+    '）': ')',
+    '，': ', ',
+    '；': '; ',
+    '：': ': ',
+    '【': '[',
+    '】': ']',
+    '、': ', ',
+    '！': '! ',
+    '？': '? ',
+    '“': '"',
+    '”': '"',
+    '‘': "'",
+    '’': "'",
+  };
+
+  return transformMathModeOnly(latex, (chunk) => {
+    return chunk.replace(/[（），；：【】、！？“”‘’]/g, (char) => map[char] || char);
+  });
+}
+
+/**
+ * 检测数学模式中未被 \text{...}, \mbox{...}, \mathrm{...} 等包裹的连续中文字符，
+ * 自动将其包裹为 \text{中文内容}，消除中文下标或注释引发的 KaTeX Unicode 警告与排版异常。
+ */
+export function autoWrapNakedChinese(latex: string): string {
+  return transformMathModeOnly(latex, (chunk) => {
+    return chunk.replace(/([\u4e00-\u9fa5]+)/g, (_m, chinese) => {
+      return `\\text{${chinese}}`;
+    });
+  });
+}
+
+/**
+ * 全面智能清洗数学公式（全角符号纠正 + 裸汉字包裹）
+ */
+export function sanitizeMathForDisplay(latex: string): {
+  sanitized: string;
+  hasChineseWrapped: boolean;
+  hasPunctuationFixed: boolean;
+  wasModified: boolean;
+} {
+  const original = latex;
+  const puncFixed = normalizeFullwidthPunctuation(latex);
+  const chineseWrapped = autoWrapNakedChinese(puncFixed);
+  return {
+    sanitized: chineseWrapped,
+    hasChineseWrapped: chineseWrapped !== puncFixed,
+    hasPunctuationFixed: puncFixed !== original,
+    wasModified: chineseWrapped !== original,
+  };
+}
+
+/**
+ * 一键语法自动修复（Auto Fix）与预览容错补全
+ * 1. 纠正中文全角标点为标准 LaTeX 符号
+ * 2. 自动给裸汉字包裹 \text{...}
+ * 3. 自动将不支持的 align / align* / equation 替换为 aligned
+ * 4. 补齐未闭合的 \left -> \right.
+ * 5. 补齐不完整 \frac{...} 的缺失项为 \Box
+ * 6. 补齐末尾未闭合的花括号 {
+ */
+export function autoFixLatexSyntax(rawLatex: string): {
+  fixed: string;
+  wasModified: boolean;
+} {
+  if (!rawLatex.trim()) return { fixed: rawLatex, wasModified: false };
+
+  let fixed = rawLatex;
+
+  // 1. 中文全角标点纠正
+  fixed = normalizeFullwidthPunctuation(fixed);
+
+  // 2. 裸汉字自动包裹
+  fixed = autoWrapNakedChinese(fixed);
+
+  // 3. 环境替换：align / align* / equation -> aligned
+  fixed = fixed.replace(/\\begin\{align\*?\}/g, '\\begin{aligned}');
+  fixed = fixed.replace(/\\end\{align\*?\}/g, '\\end{aligned}');
+  fixed = fixed.replace(/\\begin\{equation\*?\}/g, '\\begin{aligned}');
+  fixed = fixed.replace(/\\end\{equation\*?\}/g, '\\end{aligned}');
+
+  // 4. 补齐未闭合的 \left ... \right.
+  const leftMatches = fixed.match(/\\left(?![a-zA-Z])/g) || [];
+  const rightMatches = fixed.match(/\\right(?![a-zA-Z])/g) || [];
+  if (leftMatches.length > rightMatches.length) {
+    const diff = leftMatches.length - rightMatches.length;
+    fixed += ' ' + Array(diff).fill('\\right.').join(' ');
+  }
+
+  // 5. 补齐未闭合的 \frac
+  fixed = fixed.replace(/\\frac\{([^{}]+)\}(?!\s*\{)/g, '\\frac{$1}{\\Box}');
+  fixed = fixed.replace(/\\frac\{([^{}]+)\}\{\s*$/g, '\\frac{$1}{\\Box}');
+  fixed = fixed.replace(/\\frac\{\s*$/g, '\\frac{\\Box}{\\Box}');
+
+  // 6. 统计未闭合的花括号 { (忽略转义 \{ 和 \})
+  let openBraces = 0;
+  for (let i = 0; i < fixed.length; i++) {
+    if (fixed[i] === '\\') {
+      i++;
+      continue;
+    }
+    if (fixed[i] === '{') openBraces++;
+    else if (fixed[i] === '}') openBraces = Math.max(0, openBraces - 1);
+  }
+  if (openBraces > 0) {
+    fixed += '}'.repeat(openBraces);
+  }
+
+  return {
+    fixed,
+    wasModified: fixed !== rawLatex,
+  };
+}
+
+/**
  * 检查公式是否已经处于多行环境或矩阵等闭合环境中
  */
 export function hasEnclosingEnvironment(code: string): boolean {
@@ -144,12 +340,14 @@ export function hasEnclosingEnvironment(code: string): boolean {
 
 /**
  * 纯公式预处理与多行智能包裹：
- * 若包含回车换行 \n 或 \\ 或 & 对齐符，且未显式声明环境，自动为其包裹 \begin{aligned} ... \end{aligned}
- * 并将未转义的普通回车兼容处理为 \\ 换行，支持多行推导
+ * 1. 占位符转换与降级
+ * 2. 中文全角标点归一化与裸汉字自动包裹
+ * 3. 若包含回车换行 \n 或 \\ 或 & 对齐符，且未显式声明环境，自动为其包裹 \begin{aligned} ... \end{aligned}
  */
 export function normalizePureMathForRender(rawMath: string): {
   normalized: string;
   wasAutoAligned: boolean;
+  wasSanitized: boolean;
 } {
   const cleanPlaceholders = rawMath
     .replace(/\\placeholder\{([^}]*)\}/g, (_m, inner) => (inner ? inner : '\\Box'))
@@ -158,14 +356,15 @@ export function normalizePureMathForRender(rawMath: string): {
     .replace(/#\?/g, '\\Box')
     .replace(/#@/g, '');
 
-  const trimmed = cleanPlaceholders.trim();
+  const { sanitized, wasModified } = sanitizeMathForDisplay(cleanPlaceholders);
+  const trimmed = sanitized.trim();
   if (!trimmed) {
-    return { normalized: '', wasAutoAligned: false };
+    return { normalized: '', wasAutoAligned: false, wasSanitized: wasModified };
   }
 
   // 若已有环境，不重复包装
   if (hasEnclosingEnvironment(trimmed)) {
-    return { normalized: trimmed, wasAutoAligned: false };
+    return { normalized: trimmed, wasAutoAligned: false, wasSanitized: wasModified };
   }
 
   const hasNewlines = trimmed.includes('\n');
@@ -174,7 +373,7 @@ export function normalizePureMathForRender(rawMath: string): {
 
   // 纯单行公式且无对齐与分行指令，直接返回
   if (!hasNewlines && !hasLatexBreaks && !hasAlignMarkers) {
-    return { normalized: trimmed, wasAutoAligned: false };
+    return { normalized: trimmed, wasAutoAligned: false, wasSanitized: wasModified };
   }
 
   // 针对多行或带 \\ / & 的公式进行 aligned 兼容包裹
@@ -209,6 +408,7 @@ export function normalizePureMathForRender(rawMath: string): {
   return {
     normalized: wrapped,
     wasAutoAligned: true,
+    wasSanitized: wasModified,
   };
 }
 
@@ -289,11 +489,13 @@ export function extractKatexErrorPosition(err: unknown, text: string): number | 
 
 /**
  * 图文 / 题解混排模式渲染器：
- * 使用正则精准切分文本块，文本保留换行与 Markdown 格式，仅将 $...$ 和 $$...$$ 交由 KaTeX 渲染
+ * 使用正则精准切分文本块，记录每个公式片段在全文中的绝对行列坐标与偏移，
+ * 仅将 $...$ 和 $$...$$ 交由 KaTeX 渲染，实现 100% 精准错误定位映射
  */
 export function renderMixedMarkdownMath(content: string): {
   html: string;
   success: boolean;
+  wasAutoFixed: boolean;
   errorMessage?: string;
   errorPosition?: number;
   errorLength?: number;
@@ -301,7 +503,7 @@ export function renderMixedMarkdownMath(content: string): {
   errorColumn?: number;
 } {
   if (!content.trim()) {
-    return { html: '', success: true };
+    return { html: '', success: true, wasAutoFixed: false };
   }
 
   // 核心分词正则：匹配 $$...$$, \[...\], $...$, \(...\)
@@ -311,6 +513,7 @@ export function renderMixedMarkdownMath(content: string): {
   let match: RegExpExecArray | null;
   const parts: string[] = [];
   let hasAnyError = false;
+  let anyAutoFixed = false;
   let firstErrorMessage = '';
   let firstErrorPos: number | undefined;
   let firstErrorLen: number | undefined;
@@ -332,31 +535,42 @@ export function renderMixedMarkdownMath(content: string): {
     const matchIndex = match.index;
     let isBlock = false;
     let mathCode = '';
+    let delimOffset = 1;
 
     if (matchedStr.startsWith('$$') && matchedStr.endsWith('$$')) {
       isBlock = true;
+      delimOffset = 2;
       mathCode = matchedStr.slice(2, -2).trim();
     } else if (matchedStr.startsWith('\\[') && matchedStr.endsWith('\\]')) {
       isBlock = true;
+      delimOffset = 2;
       mathCode = matchedStr.slice(2, -2).trim();
     } else if (matchedStr.startsWith('\\(') && matchedStr.endsWith('\\)')) {
       isBlock = false;
+      delimOffset = 2;
       mathCode = matchedStr.slice(2, -2).trim();
     } else if (matchedStr.startsWith('$') && matchedStr.endsWith('$')) {
       isBlock = false;
+      delimOffset = 1;
       mathCode = matchedStr.slice(1, -1).trim();
     }
 
-    // 占位符与多行处理
-    const { normalized } = isBlock
-      ? normalizePureMathForRender(mathCode)
+    const formulaStartOffset = matchIndex + delimOffset;
+
+    // 清洗占位符与全角/中文
+    const { sanitized, wasModified } = sanitizeMathForDisplay(mathCode);
+    if (wasModified) anyAutoFixed = true;
+
+    const { normalized, wasAutoAligned } = isBlock
+      ? normalizePureMathForRender(sanitized)
       : {
-          normalized: mathCode
+          normalized: sanitized
             .replace(/\\placeholder\{([^}]*)\}/g, (_m, inner) => (inner ? inner : '\\Box'))
             .replace(/\\placeholder/g, '\\Box')
             .replace(/\\square/g, '\\Box')
             .replace(/#\?/g, '\\Box')
             .replace(/#@/g, ''),
+          wasAutoAligned: false,
         };
 
     try {
@@ -382,20 +596,24 @@ export function renderMixedMarkdownMath(content: string): {
       if (!firstErrorMessage && err instanceof Error) {
         firstErrorMessage = err.message.replace(/^KaTeX parse error:\s*/i, '');
         const innerPos = extractKatexErrorPosition(err, normalized);
-        if (typeof innerPos === 'number') {
-          const delimOffset = matchedStr.startsWith('$$') || matchedStr.startsWith('\\[') ? 2 : 1;
-          const absPos = Math.max(0, Math.min(matchIndex + delimOffset + innerPos, content.length));
-          firstErrorPos = absPos;
-          firstErrorLen = detectErrorTokenLength(content, absPos);
-          const loc = computeLineAndColumn(content, absPos);
-          firstErrorLine = loc?.line;
-          firstErrorCol = loc?.column;
+        let adjustedInnerPos = typeof innerPos === 'number' ? innerPos : 0;
+        if (wasAutoAligned) {
+          const alignPrefixLen = "\\begin{aligned}\n".length;
+          adjustedInnerPos = Math.max(0, adjustedInnerPos - alignPrefixLen);
         }
+        // 精确换算为全文绝对字符位置
+        const absPos = Math.max(0, Math.min(formulaStartOffset + adjustedInnerPos, content.length));
+        firstErrorPos = absPos;
+        firstErrorLen = detectErrorTokenLength(content, absPos);
+        const loc = computeLineAndColumn(content, absPos);
+        firstErrorLine = loc?.line;
+        firstErrorCol = loc?.column;
       }
 
-      // 容错渲染
+      // 宽松容错渲染（使用预览补齐）
       try {
-        const fallbackHtml = katex.renderToString(normalized, {
+        const { fixed: previewFixed } = autoFixLatexSyntax(normalized);
+        const fallbackHtml = katex.renderToString(previewFixed, {
           displayMode: isBlock,
           throwOnError: false,
           trust: false,
@@ -431,6 +649,7 @@ export function renderMixedMarkdownMath(content: string): {
   return {
     html: finalHtml,
     success: !hasAnyError,
+    wasAutoFixed: anyAutoFixed,
     errorMessage: firstErrorMessage,
     errorPosition: firstErrorPos,
     errorLength: firstErrorLen,
@@ -449,81 +668,55 @@ export function highlightLatexTokens(code: string): string {
   const tokenRegex =
     /(%[^\n]*)|(\\square)|(\\(?:begin|end)\{([a-zA-Z0-9*_-]+)\})|(\\[a-zA-Z]+|\\[^a-zA-Z\s])|(\$\$|\$|\\\\|&|[{}[\]()])|(\b\d+(?:\.\d+)?\b)|([=+\-*/^~_<>])/g;
 
-  let lastIndex = 0;
-  let html = '';
-  let match: RegExpExecArray | null;
-
-  while ((match = tokenRegex.exec(normalized)) !== null) {
-    if (match.index > lastIndex) {
-      html += escapeHtml(normalized.substring(lastIndex, match.index));
-    }
-    lastIndex = tokenRegex.lastIndex;
-
-    const [full, comment, square, envMatch, envName, cmd, delim, num, op] = match;
-
-    if (comment) {
-      html += `<span class="tok-comment">${escapeHtml(comment)}</span>`;
-    } else if (square) {
-      html += `<span class="tok-square">${escapeHtml(square)}</span>`;
-    } else if (envMatch) {
-      const isBegin = full.startsWith('\\begin');
-      const structTag = isBegin ? '\\begin' : '\\end';
-      html += `<span class="tok-struct">${structTag}</span><span class="tok-delim">{</span><span class="tok-env">${escapeHtml(envName)}</span><span class="tok-delim">}</span>`;
-    } else if (cmd) {
-      if (/^\\(frac|sqrt|sum|prod|int|iint|iiint|oint|lim|partial)/.test(cmd)) {
-        html += `<span class="tok-calc">${escapeHtml(cmd)}</span>`;
-      } else if (
-        /^\\(alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|vartheta|iota|kappa|lambda|mu|nu|xi|pi|varpi|rho|varrho|sigma|varsigma|tau|upsilon|phi|varphi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Upsilon|Phi|Psi|Omega)/.test(
-          cmd
-        )
-      ) {
-        html += `<span class="tok-greek">${escapeHtml(cmd)}</span>`;
-      } else if (
-        /^\\(mathbf|mathbb|mathcal|mathrm|text|vec|hat|bar|dot|ddot|tilde|overline|underline)/.test(
-          cmd
-        )
-      ) {
-        html += `<span class="tok-type">${escapeHtml(cmd)}</span>`;
-      } else if (/^\\(left|right)/.test(cmd)) {
-        html += `<span class="tok-bracket-cmd">${escapeHtml(cmd)}</span>`;
-      } else {
-        html += `<span class="tok-cmd">${escapeHtml(cmd)}</span>`;
+  return normalized.replace(
+    tokenRegex,
+    (
+      match,
+      comment,
+      square,
+      envBlock,
+      _envName,
+      command,
+      delimiter,
+      number,
+      operator
+    ) => {
+      if (comment) {
+        return `<span class="tok-comment">${escapeHtml(comment)}</span>`;
       }
-    } else if (delim) {
-      html += `<span class="tok-delim">${escapeHtml(delim)}</span>`;
-    } else if (num) {
-      html += `<span class="tok-num">${escapeHtml(num)}</span>`;
-    } else if (op) {
-      html += `<span class="tok-op">${escapeHtml(op)}</span>`;
+      if (square) {
+        return `<span class="tok-placeholder">${escapeHtml(square)}</span>`;
+      }
+      if (envBlock) {
+        return `<span class="tok-env">${escapeHtml(envBlock)}</span>`;
+      }
+      if (command) {
+        return `<span class="tok-command">${escapeHtml(command)}</span>`;
+      }
+      if (delimiter) {
+        return `<span class="tok-delim">${escapeHtml(delimiter)}</span>`;
+      }
+      if (number) {
+        return `<span class="tok-num">${escapeHtml(number)}</span>`;
+      }
+      if (operator) {
+        return `<span class="tok-operator">${escapeHtml(operator)}</span>`;
+      }
+      return escapeHtml(match);
     }
-  }
-
-  if (lastIndex < normalized.length) {
-    html += escapeHtml(normalized.substring(lastIndex));
-  }
-
-  return html;
+  );
 }
 
 export function computeLineAndColumn(
-  source: string,
-  position: number
+  text: string,
+  index: number
 ): { line: number; column: number } | null {
-  if (typeof position !== 'number' || Number.isNaN(position) || position < 0 || position > source.length) {
-    return null;
-  }
-
-  let line = 1;
-  let lastLineStart = 0;
-
-  for (let i = 0; i < position; i++) {
-    if (source[i] === '\n') {
-      line += 1;
-      lastLineStart = i + 1;
-    }
-  }
-
-  const column = position - lastLineStart + 1;
+  if (index < 0 || index > text.length) return null;
+  const safeIndex = Math.min(index, text.length);
+  const upToPos = text.slice(0, safeIndex);
+  const lines = upToPos.split('\n');
+  const line = lines.length;
+  const column = lines[lines.length - 1].length + 1;
   return { line, column };
 }
 
@@ -538,15 +731,10 @@ export function estimateFormulaLineCount(rawLatex: string): {
   }
 
   const physicalLines = rawLatex.split('\n').length;
-  const matches = rawLatex.match(/\\\\/g);
-  const latexBreakCount = matches ? matches.length : 0;
-
-  const hasMultiLineEnv = /\\begin\{(aligned|cases|matrix|pmatrix|bmatrix|vmatrix|Vmatrix|gather|split|align|array)\}/.test(
-    rawLatex
-  );
-
+  const breakMatches = rawLatex.match(/\\\\(?!\w)/g);
+  const latexBreakCount = breakMatches ? breakMatches.length : 0;
   const estimatedLines =
-    hasMultiLineEnv && latexBreakCount > 0
+    physicalLines <= 1 && latexBreakCount > 0
       ? latexBreakCount + 1
       : Math.max(physicalLines, latexBreakCount > 0 ? latexBreakCount + 1 : 1);
 
@@ -567,6 +755,7 @@ export interface RenderOutcome {
   mode: FormulaMode;
   isMixed: boolean;
   wasAutoAligned?: boolean;
+  wasAutoFixed?: boolean;
   errorMessage?: string;
   errorPosition?: number;
   errorLength?: number;
@@ -576,7 +765,7 @@ export interface RenderOutcome {
 
 /**
  * 核心全能公式安全渲染器：
- * 具备智能模式识别、多行环境自适应包裹与图文题解混排能力
+ * 具备智能模式识别、多行环境自适应包裹、图文题解混排、全角纠错与裸汉字 \text{} 保护能力
  */
 export function renderFormulaSafely(rawLatex: string): RenderOutcome {
   if (!rawLatex.trim()) {
@@ -602,6 +791,7 @@ export function renderFormulaSafely(rawLatex: string): RenderOutcome {
       wasStripped: false,
       mode: 'mixed-content',
       isMixed: true,
+      wasAutoFixed: mixedRes.wasAutoFixed,
       errorMessage: mixedRes.errorMessage,
       errorPosition: mixedRes.errorPosition,
       errorLength: mixedRes.errorLength,
@@ -613,7 +803,7 @@ export function renderFormulaSafely(rawLatex: string): RenderOutcome {
   // 模式二：纯公式模式 (Pure Math)
   const cleaned = modeDetect.cleanedText;
   const outerOffset = modeDetect.wasOuterStripped ? Math.max(0, rawLatex.indexOf(cleaned)) : 0;
-  const { normalized, wasAutoAligned } = normalizePureMathForRender(cleaned);
+  const { normalized, wasAutoAligned, wasSanitized } = normalizePureMathForRender(cleaned);
 
   try {
     const html = katex.renderToString(normalized, {
@@ -637,6 +827,7 @@ export function renderFormulaSafely(rawLatex: string): RenderOutcome {
       mode: 'pure-math',
       isMixed: false,
       wasAutoAligned,
+      wasAutoFixed: wasSanitized,
     };
   } catch (err: unknown) {
     let activeErr = err;
@@ -665,9 +856,9 @@ export function renderFormulaSafely(rawLatex: string): RenderOutcome {
           mode: 'pure-math',
           isMixed: false,
           wasAutoAligned: false,
+          wasAutoFixed: wasSanitized,
         };
       } catch (errCleaned) {
-        // 原始代码抛出的 ParseError 位置直接映射到 cleaned
         activeErr = errCleaned;
         isRelativeCleaned = true;
       }
@@ -687,10 +878,11 @@ export function renderFormulaSafely(rawLatex: string): RenderOutcome {
     const errorLength = detectErrorTokenLength(rawLatex, absolutePos);
     const loc = computeLineAndColumn(rawLatex, absolutePos);
 
-    // 尝试宽松模式容错渲染
+    // 尝试宽松模式容错渲染：对临时副本应用预览级自动补齐 (Auto-Sanitize for Preview)
     let fallbackHtml = '';
     try {
-      fallbackHtml = katex.renderToString(normalized, {
+      const { fixed: previewFixed } = autoFixLatexSyntax(normalized);
+      fallbackHtml = katex.renderToString(previewFixed, {
         displayMode: true,
         throwOnError: false,
         trust: false,
@@ -721,6 +913,7 @@ export function renderFormulaSafely(rawLatex: string): RenderOutcome {
       mode: 'pure-math',
       isMixed: false,
       wasAutoAligned,
+      wasAutoFixed: wasSanitized,
       errorMessage: errorMsg,
       errorPosition: absolutePos,
       errorLength,

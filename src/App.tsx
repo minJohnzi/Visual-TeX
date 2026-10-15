@@ -235,10 +235,13 @@ export function App() {
     const a = document.createElement('a');
     a.href = url;
     a.download = `latex-offline-${safeTitle}-${Date.now()}.html`;
+    a.style.display = 'none';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 1000);
     showToast(t.toastDownloadedHtml, 'success');
   }, [code, isZh, showToast, t.toastDownloadedHtml]);
 
@@ -275,6 +278,16 @@ export function App() {
       }
     },
     [code, showToast, t]
+  );
+
+  const handleAutoFix = useCallback(
+    (fixedLatex: string) => {
+      setCode(fixedLatex);
+      if (editorRef.current) {
+        editorRef.current.setValue(fixedLatex);
+      }
+    },
+    []
   );
 
   return (
@@ -358,7 +371,11 @@ export function App() {
           <button
             type="button"
             className="btn btn-sm"
-            onClick={handleDownloadSingleHtml}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleDownloadSingleHtml();
+            }}
             title={t.offlineHtmlTooltip}
             aria-label={t.offlineHtml}
           >
@@ -421,7 +438,11 @@ export function App() {
           ========================================================================== */}
       <main className="workspace-container max-w-5xl xl:max-w-6xl mx-auto w-full px-3 sm:px-6 py-4">
         {/* SECTION 1: 符号与模板选择器面板 */}
-        <SymbolPalette onSelectItem={handleSelectPaletteItem} />
+        <SymbolPalette
+          onSelectItem={handleSelectPaletteItem}
+          onAppendRow={() => editorRef.current?.appendRow()}
+          onAppendColumn={() => editorRef.current?.appendColumn()}
+        />
 
         {/* SECTION 2: LaTeX 源码编辑器 */}
         <FormulaEditor
@@ -436,6 +457,7 @@ export function App() {
           latex={code}
           onToast={showToast}
           onJumpToError={handleJumpToError}
+          onAutoFix={handleAutoFix}
         />
       </main>
 

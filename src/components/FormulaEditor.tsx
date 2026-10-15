@@ -12,11 +12,14 @@ import {
   highlightLatexTokens,
   estimateFormulaLineCount,
   renderFormulaSafely,
+  sanitizeMathForDisplay,
 } from '../utils/latex';
 import { copyPlainText } from '../utils/exportPng';
 import {
   smartInsertIntoMathfield,
   smartInsertIntoTextarea,
+  appendMatrixRow,
+  appendMatrixCol,
 } from '../utils/insertHandler';
 import type { RenderStatus } from '../types/formula';
 import { useI18n } from '../i18n/context';
@@ -29,6 +32,9 @@ export interface FormulaEditorHandle {
   focus: () => void;
   getMode: () => EditorMode;
   jumpToPosition: (pos: number, length?: number) => void;
+  appendRow: () => void;
+  appendColumn: () => void;
+  normalizeFullwidthAndChinese: () => void;
 }
 
 interface FormulaEditorProps {
@@ -164,7 +170,14 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
     useEffect(() => {
       if (typeof window === 'undefined') return;
 
-      // 配置虚拟键盘策略，避免桌面端意外弹出底层触控键盘
+      // 显式禁用按键音频，避免控制台 404 资源请求报错
+      try {
+        (MathfieldElement as unknown as { soundsDirectory: string | null }).soundsDirectory = null;
+      } catch {
+        // ignore
+      }
+
+      // 配置虚拟键盘策略，避免小屏幕或桌面端弹出遮挡预览视口
       const win = window as unknown as { mathVirtualKeyboard?: { policy?: string; visible?: boolean } };
       if (win.mathVirtualKeyboard) {
         try {
@@ -179,6 +192,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
 
       // 创建并配置 MathfieldElement
       const mf = new MathfieldElement();
+      mf.mathVirtualKeyboardPolicy = 'manual';
       const initialVisual = value.replace(/\\square/g, '\\placeholder{}');
       mf.value = initialVisual;
       mf.smartMode = true;
@@ -586,13 +600,46 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
       }
     };
 
+    // 中文全角标点纠错与裸汉字自动包裹
+    const handleNormalizePunctuation = useCallback(() => {
+      const { sanitized, wasModified } = sanitizeMathForDisplay(value);
+      if (wasModified) {
+        if (mode === 'visual' && mathfieldRef.current) {
+          mathfieldRef.current.setValue(sanitized.replace(/\\square/g, '\\placeholder{}'));
+        }
+        onChange(sanitized);
+        onToast(t.toastNormalizedSuccess, 'success');
+      } else {
+        onToast(isZh ? '公式符号已非常规范，无需替换' : 'Symbols and text are already normalized', 'info');
+      }
+    }, [value, mode, onChange, onToast, t, isZh]);
+
+    // 追加一行
+    const handleAppendRow = useCallback(() => {
+      const nextVal = appendMatrixRow(value);
+      if (mode === 'visual' && mathfieldRef.current) {
+        mathfieldRef.current.setValue(nextVal.replace(/\\square/g, '\\placeholder{}'));
+      }
+      onChange(nextVal);
+      onToast(t.matrixAddRow, 'info');
+    }, [value, mode, onChange, onToast, t]);
+
+    // 追加一列
+    const handleAppendColumn = useCallback(() => {
+      const nextVal = appendMatrixCol(value);
+      if (mode === 'visual' && mathfieldRef.current) {
+        mathfieldRef.current.setValue(nextVal.replace(/\\square/g, '\\placeholder{}'));
+      }
+      onChange(nextVal);
+      onToast(t.matrixAddCol, 'info');
+    }, [value, mode, onChange, onToast, t]);
+
     // 暴露给符号面板与父组件的命令式操作
     useImperativeHandle(
       ref,
       () => ({
         insertTemplate: (item: PaletteItem) => {
           if (mode === 'visual') {
-            // 【视觉模式下插入】：使用 MathLive 原生增量插入与占位符聚焦
             const mf = mathfieldRef.current;
             if (mf) {
               isMathfieldInternalChangeRef.current = true;
@@ -603,7 +650,6 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
               }, 150);
             }
           } else {
-            // 【源码模式下插入】：上下文感知的智能附着与光标定位
             const ta = textareaRef.current;
             if (!ta) return;
             ta.focus();
@@ -640,8 +686,11 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         },
         getMode: () => mode,
         jumpToPosition: jumpToPositionInternal,
+        appendRow: handleAppendRow,
+        appendColumn: handleAppendColumn,
+        normalizeFullwidthAndChinese: handleNormalizePunctuation,
       }),
-      [mode, onChange, jumpToPositionInternal]
+      [mode, onChange, jumpToPositionInternal, handleAppendRow, handleAppendColumn, handleNormalizePunctuation]
     );
 
     useEffect(() => {
@@ -837,6 +886,22 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
                   ? t.delimitersInline
                   : t.delimitersDisplay}
               </span>
+            </button>
+
+            {/* 中文全角标点纠正与汉字规范化按钮 */}
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={handleNormalizePunctuation}
+              title={t.normalizePunctuationTooltip}
+              aria-label={t.normalizePunctuation}
+              disabled={!value.trim()}
+              style={{ opacity: !value.trim() ? 0.45 : 1 }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3z" />
+              </svg>
+              <span className="hidden sm:inline">{t.normalizePunctuation}</span>
             </button>
 
             <button
