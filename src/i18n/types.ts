@@ -50,6 +50,9 @@ export interface Translations {
   delimitersNone: string;
   delimitersInline: string;
   delimitersDisplay: string;
+  delimitersEquation: string;
+  virtualKeyboardToggle: string;
+  virtualKeyboardTooltip: string;
   formatCode: string;
   clearCode: string;
   copyCode: string;

@@ -4,7 +4,10 @@ import { SymbolPalette } from './components/SymbolPalette';
 import { FormulaEditor, type FormulaEditorHandle } from './components/FormulaEditor';
 import { FormulaPreview } from './components/FormulaPreview';
 import { CLASSIC_FORMULAS, type PaletteItem, type ClassicFormula } from './data/symbols';
-import { stripOuterMathDelimiters, computeLineAndColumn } from './utils/latex';
+import { stripOuterMathDelimiters, computeLineAndColumn, renderFormulaSafely } from './utils/latex';
+import { generateStandaloneOfflineHtml, sanitizeFilename } from './utils/exportHtml';
+import { getFormulaSvgElement } from './utils/exportPng';
+import { copyTextToClipboard } from './utils/clipboard';
 import { useI18n } from './i18n/context';
 
 const STORAGE_KEYS = {
@@ -37,10 +40,12 @@ export function App() {
   // Modals
   const [showExamplesModal, setShowExamplesModal] = useState<boolean>(false);
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
+  const [historyItems, setHistoryItems] = useState<string[]>([]);
   const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
 
   const editorRef = useRef<FormulaEditorHandle | null>(null);
   const saveTimerRef = useRef<number | null>(null);
+  const historyTimerRef = useRef<number | null>(null);
 
   // 初始化主题
   useEffect(() => {
@@ -92,32 +97,47 @@ export function App() {
     }, 2200);
   }, []);
 
+  // 写入本地历史记录（防抖调用）
+  const saveToHistory = useCallback((val: string) => {
+    const trimmed = val.trim();
+    if (trimmed.length < 3) return;
+    try {
+      let list: string[] = [];
+      try {
+        list = JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY) || '[]');
+      } catch {
+        list = [];
+      }
+      list = list.filter((item) => item !== trimmed);
+      list.unshift(trimmed);
+      if (list.length > 30) list = list.slice(0, 30);
+      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(list));
+    } catch {
+      // ignore
+    }
+  }, []);
+
   // 保存代码
   const handleCodeChange = useCallback(
     (newVal: string) => {
       setCode(newVal);
       try {
         localStorage.setItem(STORAGE_KEYS.CODE, newVal);
-        // 添加到本地历史
-        if (newVal.trim().length >= 3) {
-          const trimmed = newVal.trim();
-          let list: string[] = [];
-          try {
-            list = JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY) || '[]');
-          } catch {
-            list = [];
-          }
-          list = list.filter((item) => item !== trimmed);
-          list.unshift(trimmed);
-          if (list.length > 25) list = list.slice(0, 25);
-          localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(list));
-        }
       } catch {
         // ignore
       }
+
+      // 防抖存储历史记录，避免打字过程产生大量破碎片段
+      if (historyTimerRef.current !== null) {
+        window.clearTimeout(historyTimerRef.current);
+      }
+      historyTimerRef.current = window.setTimeout(() => {
+        saveToHistory(newVal);
+      }, 1200);
+
       notifySaved();
     },
-    [notifySaved]
+    [notifySaved, saveToHistory]
   );
 
   // 符号面板点选插入
@@ -127,122 +147,60 @@ export function App() {
     }
   }, []);
 
-  // 下载独立单文件 index.html
-  const handleDownloadSingleHtml = useCallback(() => {
-    const { cleaned } = stripOuterMathDelimiters(code);
-    const safeTitle =
-      cleaned
-        .slice(0, 20)
-        .replace(/[^a-zA-Z0-9\u4e00-\u9fa5]+/g, '_')
-        .replace(/^_+|_+$/g, '') || 'formula';
-
-    const htmlContent = `<!DOCTYPE html>
-<html lang="${isZh ? 'zh-CN' : 'en'}">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>LaTeX Formula - ${safeTitle}</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
-  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-  <style>
-    body {
-      margin: 0;
-      padding: 40px 20px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #0f172a;
-      color: #f8fafc;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      box-sizing: border-box;
-    }
-    .card {
-      background: #1e293b;
-      border: 1px solid #334155;
-      border-radius: 12px;
-      padding: 36px 28px;
-      max-width: 860px;
-      width: 100%;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
-      text-align: center;
-      box-sizing: border-box;
-    }
-    .badge {
-      display: inline-block;
-      font-size: 11px;
-      color: #38bdf8;
-      background: rgba(56, 189, 248, 0.12);
-      border: 1px solid rgba(56, 189, 248, 0.25);
-      border-radius: 9999px;
-      padding: 2px 10px;
-      margin-bottom: 8px;
-    }
-    h1 {
-      font-size: 17px;
-      color: #e2e8f0;
-      margin: 0 0 12px 0;
-      font-weight: 600;
-    }
-    .math-stage {
-      font-size: 2.25rem;
-      margin: 28px 0;
-      overflow-x: auto;
-      padding: 20px 10px;
-    }
-    pre {
-      background: #0b0f19;
-      border: 1px solid #334155;
-      border-radius: 8px;
-      padding: 16px;
-      font-family: monospace;
-      font-size: 13px;
-      color: #93c5fd;
-      text-align: left;
-      overflow-x: auto;
-      white-space: pre-wrap;
-      word-break: break-all;
-    }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="badge">${isZh ? 'LaTeX 离线单文件展示' : 'LaTeX Standalone Offline View'}</div>
-    <h1>LaTeX Formula Editor ${isZh ? '导出文件' : 'Exported File'}</h1>
-    <div id="math-output" class="math-stage"></div>
-    <pre><code>${cleaned.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>
-    <div style="margin-top: 20px; font-size: 12px; color: #64748b; text-align: center;">
-      Generated by <a href="https://visual-tex.ai.studio" target="_blank" rel="noopener noreferrer" style="color: #38bdf8; text-decoration: none;">LaTeX Formula Editor (visual-tex.ai.studio)</a>
-    </div>
-  </div>
-  <script>
-    document.addEventListener("DOMContentLoaded", function () {
-      var el = document.getElementById("math-output");
-      var raw = ${JSON.stringify(cleaned)};
-      if (window.katex) {
-        window.katex.render(raw.replace(/\\\\placeholder\\{[^}]*\\}/g, '\\\\Box').replace(/\\\\placeholder/g, '\\\\Box').replace(/\\\\square/g, '\\\\Box'), el, { displayMode: true, throwOnError: false });
-      } else {
-        el.textContent = raw;
+  // 下载 100% 独立离线单文件 HTML（彻底消除外部 CDN 依赖与脚本注入风险）
+  const handleDownloadSingleHtml = useCallback(async () => {
+    try {
+      const { cleaned } = stripOuterMathDelimiters(code);
+      if (!cleaned.trim()) {
+        showToast(isZh ? '公式内容为空，无法导出' : 'Formula is empty', 'error');
+        return;
       }
-    });
-  </script>
-</body>
-</html>`;
 
-    const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `latex-offline-${safeTitle}-${Date.now()}.html`;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => {
-      URL.revokeObjectURL(url);
-    }, 1000);
-    showToast(t.toastDownloadedHtml, 'success');
+      let svgHtml = '';
+      let katexHtml = '';
+
+      // 1. 首选提取自包含矢量 SVG 标签字符串
+      try {
+        const svgRes = await getFormulaSvgElement(cleaned, '#f1f5f9', 'dark');
+        svgHtml = svgRes.svg.outerHTML;
+      } catch {
+        // 2. 降级采用 KaTeX 本地静态渲染 HTML
+        try {
+          const rendered = renderFormulaSafely(cleaned);
+          katexHtml = rendered.html;
+        } catch {
+          // ignore
+        }
+      }
+
+      const htmlContent = generateStandaloneOfflineHtml({
+        latex: cleaned,
+        isZh,
+        svgHtml,
+        katexHtml,
+      });
+
+      const safeTitle = sanitizeFilename(cleaned);
+      const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `latex-offline-${safeTitle}-${Date.now()}.html`;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // 异步延迟回收 Blob URL，防止过早释放
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+      }, 1500);
+
+      showToast(t.toastDownloadedHtml, 'success');
+    } catch (err) {
+      console.error('Failed to generate offline standalone HTML:', err);
+      showToast(isZh ? '导出离线单文件失败，请重试' : 'Failed to export offline HTML', 'error');
+    }
   }, [code, isZh, showToast, t.toastDownloadedHtml]);
 
   // 读取历史记录
@@ -254,12 +212,28 @@ export function App() {
     }
   }, []);
 
+  // 删除单条历史记录
+  const handleDeleteHistoryItem = useCallback(
+    (index: number) => {
+      try {
+        const list = getHistoryList();
+        list.splice(index, 1);
+        localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(list));
+        setHistoryItems(list);
+      } catch {
+        // ignore
+      }
+    },
+    [getHistoryList]
+  );
+
   const handleClearHistory = useCallback(() => {
     try {
       localStorage.removeItem(STORAGE_KEYS.HISTORY);
     } catch {
       // ignore
     }
+    setHistoryItems([]);
     showToast(t.toastClearedHistory, 'info');
   }, [showToast, t.toastClearedHistory]);
 
@@ -340,7 +314,10 @@ export function App() {
           <button
             type="button"
             className="btn btn-sm"
-            onClick={() => setShowHistoryModal(true)}
+            onClick={() => {
+              setHistoryItems(getHistoryList());
+              setShowHistoryModal(true);
+            }}
             title={t.historyTooltip}
             aria-label={t.history}
           >
@@ -550,36 +527,72 @@ export function App() {
                 </button>
               </div>
               <div className="history-list">
-                {(() => {
-                  const history = getHistoryList();
-                  if (history.length === 0) {
-                    return (
-                      <div style={{ color: 'var(--text-muted)', padding: '1rem', textAlign: 'center' }}>
-                        {t.noHistory}
+                {historyItems.length === 0 ? (
+                  <div style={{ color: 'var(--text-muted)', padding: '1rem', textAlign: 'center' }}>
+                    {t.noHistory}
+                  </div>
+                ) : (
+                  historyItems.map((item, idx) => (
+                    <div key={idx} className="history-item">
+                      <div
+                        className="history-code"
+                        title={item}
+                        onClick={() => {
+                          if (editorRef.current) {
+                            editorRef.current.setValue(item);
+                          } else {
+                            handleCodeChange(item);
+                          }
+                          setShowHistoryModal(false);
+                          showToast(t.toastRestoredHistory, 'success');
+                        }}
+                      >
+                        {item}
                       </div>
-                    );
-                  }
-                  return history.map((item, idx) => (
-                    <div
-                      key={idx}
-                      className="history-item"
-                      onClick={() => {
-                        if (editorRef.current) {
-                          editorRef.current.setValue(item);
-                        } else {
-                          handleCodeChange(item);
-                        }
-                        setShowHistoryModal(false);
-                        showToast(t.toastRestoredHistory, 'success');
-                      }}
-                    >
-                      <div className="history-code">{item}</div>
-                      <button type="button" className="btn btn-sm">
-                        {t.restoreFormula}
-                      </button>
+                      <div style={{ display: 'flex', gap: '0.35rem', flexShrink: 0 }}>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-primary"
+                          title={t.restoreFormula}
+                          onClick={() => {
+                            if (editorRef.current) {
+                              editorRef.current.setValue(item);
+                            } else {
+                              handleCodeChange(item);
+                            }
+                            setShowHistoryModal(false);
+                            showToast(t.toastRestoredHistory, 'success');
+                          }}
+                        >
+                          {t.restoreFormula}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          title={t.copyLatex}
+                          onClick={async () => {
+                            const ok = await copyTextToClipboard(item);
+                            if (ok) {
+                              showToast(t.toastCopiedLatex, 'success');
+                            }
+                          }}
+                        >
+                          {t.copyCode}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          style={{ color: '#ef4444', padding: '0.2rem 0.5rem' }}
+                          title={t.deleteHistoryItem}
+                          aria-label={t.deleteHistoryItem}
+                          onClick={() => handleDeleteHistoryItem(idx)}
+                        >
+                          &times;
+                        </button>
+                      </div>
                     </div>
-                  ));
-                })()}
+                  ))
+                )}
               </div>
             </div>
           </div>

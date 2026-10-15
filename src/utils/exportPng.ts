@@ -46,6 +46,26 @@ export function isColorLight(hexOrName: string): boolean {
 }
 
 /**
+ * 严格解耦 UI 主题与导出颜色：
+ * 默认透明底色 (checker) 必须采用深色公式文字 (#0f172a)，确保贴入 Word/PPT 白底时不失明看不见
+ */
+export function resolveExportTextColor(
+  requestedColor: string | undefined,
+  bgMode: CanvasBgMode
+): string {
+  if (requestedColor && requestedColor !== 'default') {
+    return requestedColor;
+  }
+  if (bgMode === 'checker' || bgMode === 'white' || bgMode === 'gray') {
+    return '#0f172a';
+  }
+  if (bgMode === 'dark') {
+    return '#f8fafc';
+  }
+  return '#0f172a';
+}
+
+/**
  * 规范化 LaTeX 代码，去除多余定界符并转义输入占位符
  */
 export function prepareFormulaForRender(rawLatex: string): string {
@@ -68,7 +88,7 @@ export async function getFormulaSvgElement(
   bgMode: CanvasBgMode = 'checker',
   options?: ExportOptions
 ): Promise<SvgRenderResult> {
-  const effectiveColor = options?.textColor || color;
+  const effectiveColor = resolveExportTextColor(options?.textColor || color, bgMode);
   const modeDetect = detectFormulaMode(latex);
 
   // 1. 若为纯公式模式，首选尝试 MathJax 3 渲染纯矢量路径 SVG (无外部字体依赖，无限缩放不失真)
@@ -154,10 +174,7 @@ export async function getFormulaSvgElement(
               }
 
               // 颜色处理
-              let resolvedColor = effectiveColor;
-              if (effectiveColor === 'default') {
-                resolvedColor = bgMode === 'dark' ? '#f8fafc' : '#0f172a';
-              }
+              const resolvedColor = effectiveColor;
               svg.style.color = resolvedColor;
               svg.setAttribute('color', resolvedColor);
               svg.setAttribute('fill', 'currentColor');
@@ -194,10 +211,7 @@ export async function getFormulaSvgElement(
   host.style.display = 'inline-block';
   host.style.maxWidth = '900px';
 
-  let resolvedColor = effectiveColor;
-  if (effectiveColor === 'default') {
-    resolvedColor = bgMode === 'dark' ? '#f8fafc' : '#0f172a';
-  }
+  const resolvedColor = effectiveColor;
   host.style.color = resolvedColor;
   host.innerHTML = outcome.html;
 

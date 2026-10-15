@@ -20,7 +20,14 @@ import {
   smartInsertIntoTextarea,
   appendMatrixRow,
   appendMatrixCol,
+  deleteMatrixRow,
+  deleteMatrixCol,
 } from '../utils/insertHandler';
+import { findNextPlaceholder, findPrevPlaceholder } from '../utils/placeholder';
+import { handleBracketAutoPair, checkCommandCompletion } from '../utils/sourceEditorState';
+import { tryExpandShortcut } from '../utils/shortcuts';
+import { normalizePastedLatex } from '../utils/pasteNormalize';
+import { wrapWithDelimiter, type DelimiterMode } from '../utils/delimiter';
 import type { RenderStatus } from '../types/formula';
 import { useI18n } from '../i18n/context';
 
@@ -34,6 +41,8 @@ export interface FormulaEditorHandle {
   jumpToPosition: (pos: number, length?: number) => void;
   appendRow: () => void;
   appendColumn: () => void;
+  deleteRow: () => void;
+  deleteColumn: () => void;
   normalizeFullwidthAndChinese: () => void;
 }
 
@@ -53,6 +62,32 @@ interface VersionItem {
 const STORAGE_MODE_KEY = 'latex_formula_editor_mode';
 const STORAGE_RECENT_VERSIONS_KEY = 'latex_formula_recent_5_versions';
 
+function safeSetMathfieldValue(
+  mf: MathfieldElement | null,
+  val: string,
+  options?: Parameters<MathfieldElement['setValue']>[1]
+) {
+  if (!mf) return;
+  try {
+    if (typeof mf.setValue === 'function') {
+      mf.setValue(val, options);
+    } else {
+      mf.value = val;
+    }
+  } catch (err) {
+    console.warn('Failed to set Mathfield value:', err);
+  }
+}
+
+function safeFocusMathfield(mf: MathfieldElement | null) {
+  if (!mf) return;
+  try {
+    mf.focus?.();
+  } catch {
+    // ignore
+  }
+}
+
 export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>(
   ({ value, onChange, onToast }, ref) => {
     const { t, isZh } = useI18n();
@@ -68,18 +103,25 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
       return 'visual';
     });
 
+    const modeRef = useRef<EditorMode>(mode);
+    useEffect(() => {
+      modeRef.current = mode;
+    }, [mode]);
+
     // 视觉模式 MathLive 相关 Ref
     const mathfieldContainerRef = useRef<HTMLDivElement | null>(null);
     const mathfieldRef = useRef<MathfieldElement | null>(null);
     const isMathfieldInternalChangeRef = useRef<boolean>(false);
+    const [isVirtualKeyboardOpen, setIsVirtualKeyboardOpen] = useState<boolean>(false);
 
     // 源码模式 Textarea 相关 Ref
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+    const isComposingRef = useRef<boolean>(false);
     const lineNumbersRef = useRef<HTMLDivElement | null>(null);
     const highlightPreRef = useRef<HTMLPreElement | null>(null);
 
-    // 定界符与排版状态
-    const [delimiterMode, setDelimiterMode] = useState<'none' | 'inline' | 'display'>('none');
+    // 定界符与排版状态 (支持 4 种模式：none, inline, display, equation)
+    const [delimiterMode, setDelimiterMode] = useState<DelimiterMode>('none');
 
     // 1. 最近 5 个公式版本历史（下拉菜单）
     const [versionHistory, setVersionHistory] = useState<VersionItem[]>(() => {
@@ -152,8 +194,8 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
           setTimeout(() => {
             if (mathfieldRef.current) {
               const visualSnippet = value.replace(/\\square/g, '\\placeholder{}');
-              mathfieldRef.current.setValue(visualSnippet, { selectionMode: 'item' });
-              mathfieldRef.current.focus();
+              safeSetMathfieldValue(mathfieldRef.current, visualSnippet, { selectionMode: 'item' });
+              safeFocusMathfield(mathfieldRef.current);
             }
           }, 50);
         } else {
@@ -190,15 +232,17 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
       const container = mathfieldContainerRef.current;
       if (!container) return;
 
+      // 清空容器，防止 React StrictMode 下重复 append
+      container.innerHTML = '';
+
       // 创建并配置 MathfieldElement
       const mf = new MathfieldElement();
       mf.mathVirtualKeyboardPolicy = 'manual';
-      const initialVisual = value.replace(/\\square/g, '\\placeholder{}');
-      mf.value = initialVisual;
       mf.smartMode = true;
 
-      // 监听用户在视觉框中的实时编辑，同步更新 LaTeX 状态
+      // 监听用户在视觉框中的实时编辑，仅在视觉模式激活时同步更新 LaTeX 状态
       const handleInput = () => {
+        if (modeRef.current !== 'visual') return;
         isMathfieldInternalChangeRef.current = true;
         const currentLatex = mf.value;
         onChange(currentLatex);
@@ -207,27 +251,72 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         }, 0);
       };
 
+      const handleMfKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          const win = window as unknown as { mathVirtualKeyboard?: { hide?: () => void; visible?: boolean } };
+          if (win.mathVirtualKeyboard?.visible) {
+            win.mathVirtualKeyboard.hide?.();
+            setIsVirtualKeyboardOpen(false);
+          }
+        }
+      };
+
       mf.addEventListener('input', handleInput);
+      mf.addEventListener('keydown', handleMfKeyDown);
+
+      // 关键：必须先将 mf 挂载到 DOM 容器中，触发 connectedCallback
+      // 初始化内部 _mathfield，方可安全读取或设置 macros 等属性，避免 "Mathfield not mounted" 错误
       container.appendChild(mf);
       mathfieldRef.current = mf;
 
+      // 初始化显示值
+      const initialVisual = value.replace(/\\square/g, '\\placeholder{}');
+      safeSetMathfieldValue(mf, initialVisual, { selectionMode: 'after' });
+
+      // 宏保护：防止 MathLive 自作主张将标准 \boldsymbol 改写为 \mathbf，保护科研用户宏定义
+      try {
+        let existingMacros = {};
+        try {
+          existingMacros = mf.macros || {};
+        } catch {
+          existingMacros = {};
+        }
+        mf.macros = {
+          ...existingMacros,
+          boldsymbol: { args: 1, def: '\\boldsymbol{#1}' },
+          mathbf: { args: 1, def: '\\mathbf{#1}' },
+          mathbb: { args: 1, def: '\\mathbb{#1}' },
+          mathcal: { args: 1, def: '\\mathcal{#1}' },
+          mathrm: { args: 1, def: '\\mathrm{#1}' },
+          operatorname: { args: 1, def: '\\operatorname{#1}' },
+        };
+      } catch (e) {
+        console.warn('Failed to configure Mathfield macros:', e);
+      }
+
       return () => {
         mf.removeEventListener('input', handleInput);
+        mf.removeEventListener('keydown', handleMfKeyDown);
         mf.remove();
         mathfieldRef.current = null;
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // 当外部传入的 value 改变时，若非内部自发改变则同步到 mathfield
+    // 当外部传入的 value 改变时，仅在当前处于视觉模式且非内部自发改变时同步到 mathfield
+    // 在源码模式下绝不触碰 mathfield，杜绝多重渲染竞态和快速打字丢字问题
     useEffect(() => {
-      if (mathfieldRef.current && !isMathfieldInternalChangeRef.current) {
+      if (mode === 'visual' && mathfieldRef.current && !isMathfieldInternalChangeRef.current) {
         const visualLatex = value.replace(/\\square/g, '\\placeholder{}');
-        if (mathfieldRef.current.value !== visualLatex && mathfieldRef.current.value !== value) {
-          mathfieldRef.current.setValue(visualLatex, { selectionMode: 'after' });
+        try {
+          if (mathfieldRef.current.value !== visualLatex && mathfieldRef.current.value !== value) {
+            safeSetMathfieldValue(mathfieldRef.current, visualLatex, { selectionMode: 'after' });
+          }
+        } catch {
+          // ignore
         }
       }
-    }, [value]);
+    }, [value, mode]);
 
     // 计算渲染状态 (Ready / Compiling / Error) 带防抖
     useEffect(() => {
@@ -365,8 +454,8 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
       (latex: string) => {
         if (mode === 'visual' && mathfieldRef.current) {
           const visual = latex.replace(/\\square/g, '\\placeholder{}');
-          mathfieldRef.current.setValue(visual, { selectionMode: 'item' });
-          mathfieldRef.current.focus();
+          safeSetMathfieldValue(mathfieldRef.current, visual, { selectionMode: 'item' });
+          safeFocusMathfield(mathfieldRef.current);
         } else if (textareaRef.current) {
           textareaRef.current.focus();
         }
@@ -387,8 +476,8 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
 
         if (mode === 'visual' && mathfieldRef.current) {
           const visual = targetVal.replace(/\\square/g, '\\placeholder{}');
-          mathfieldRef.current.setValue(visual, { selectionMode: 'item' });
-          mathfieldRef.current.focus();
+          safeSetMathfieldValue(mathfieldRef.current, visual, { selectionMode: 'item' });
+          safeFocusMathfield(mathfieldRef.current);
         } else if (textareaRef.current) {
           textareaRef.current.focus();
         }
@@ -407,8 +496,8 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
 
         if (mode === 'visual' && mathfieldRef.current) {
           const visual = targetVal.replace(/\\square/g, '\\placeholder{}');
-          mathfieldRef.current.setValue(visual, { selectionMode: 'item' });
-          mathfieldRef.current.focus();
+          safeSetMathfieldValue(mathfieldRef.current, visual, { selectionMode: 'item' });
+          safeFocusMathfield(mathfieldRef.current);
         } else if (textareaRef.current) {
           textareaRef.current.focus();
         }
@@ -421,8 +510,8 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
     const handleClear = useCallback(() => {
       if (!value.trim()) return;
       if (mode === 'visual' && mathfieldRef.current) {
-        mathfieldRef.current.setValue('');
-        mathfieldRef.current.focus();
+        safeSetMathfieldValue(mathfieldRef.current, '');
+        safeFocusMathfield(mathfieldRef.current);
       }
       onChange('');
       onToast(t.toastCleared, 'info');
@@ -436,13 +525,13 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         .join('\n')
         .trim();
       if (mode === 'visual' && mathfieldRef.current) {
-        mathfieldRef.current.setValue(formatted.replace(/\\square/g, '\\placeholder{}'));
+        safeSetMathfieldValue(mathfieldRef.current, formatted.replace(/\\square/g, '\\placeholder{}'));
       }
       onChange(formatted);
       onToast(t.toastFormatted, 'success');
     }, [value, mode, onChange, onToast, t]);
 
-    // 复制当前 LaTeX 源码
+    // 复制当前 LaTeX 源码 (按当前选定定界符模式安全包装，不破坏内部权威源码)
     const handleCopyLatex = useCallback(async () => {
       const target = value.trim();
       if (!target) {
@@ -450,7 +539,8 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         return;
       }
       try {
-        await copyPlainText(value);
+        const wrapped = wrapWithDelimiter(value, delimiterMode);
+        await copyPlainText(wrapped);
         setCopiedLatex(true);
         onToast(t.toastCopiedLatex, 'success');
         window.setTimeout(() => {
@@ -460,54 +550,83 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         const msg = err instanceof Error ? err.message : (t.toastClipboardUnavailable || '剪贴板访问失败');
         onToast(msg, 'error');
       }
-    }, [value, onToast, t, isZh]);
+    }, [value, delimiterMode, onToast, t, isZh]);
 
-    // 定界符切换
+    // 四种定界符模式循环切换 (none -> inline -> display -> equation -> none)
     const handleToggleDelimiters = useCallback(() => {
-      let code = value.trim();
-      let currentMode: 'none' | 'inline' | 'display' = 'none';
-
-      if (code.startsWith('$$') && code.endsWith('$$') && code.length >= 4) {
-        code = code.slice(2, -2).trim();
-        currentMode = 'display';
-      } else if (code.startsWith('$') && code.endsWith('$') && code.length >= 2) {
-        code = code.slice(1, -1).trim();
-        currentMode = 'inline';
-      }
-
-      let nextVal = code;
-      let nextMode: 'none' | 'inline' | 'display' = 'none';
-
-      if (currentMode === 'none') {
-        nextVal = `$${code}$`;
-        nextMode = 'inline';
-        onToast(`${t.toastDelimiterSwitched}: $...$`, 'info');
-      } else if (currentMode === 'inline') {
-        nextVal = `$$\n${code}\n$$`;
-        nextMode = 'display';
-        onToast(`${t.toastDelimiterSwitched}: $$...$$`, 'info');
-      } else {
-        nextVal = code;
-        nextMode = 'none';
-        onToast(t.toastDelimiterRemoved, 'info');
-      }
-
+      const modes: DelimiterMode[] = ['none', 'inline', 'display', 'equation'];
+      const nextIdx = (modes.indexOf(delimiterMode) + 1) % modes.length;
+      const nextMode = modes[nextIdx];
       setDelimiterMode(nextMode);
-      if (mode === 'visual' && mathfieldRef.current) {
-        mathfieldRef.current.setValue(nextVal.replace(/\\square/g, '\\placeholder{}'));
+
+      let label = t.delimitersNone;
+      if (nextMode === 'inline') label = '$...$';
+      else if (nextMode === 'display') label = '$$...$$';
+      else if (nextMode === 'equation') label = '\\begin{equation}';
+
+      onToast(`${t.toastDelimiterSwitched}: ${label}`, 'info');
+    }, [delimiterMode, onToast, t]);
+
+    // 虚拟键盘开关切换
+    const handleToggleVirtualKeyboard = useCallback(() => {
+      const win = window as unknown as {
+        mathVirtualKeyboard?: {
+          show?: () => void;
+          hide?: () => void;
+          visible?: boolean;
+        };
+      };
+      if (win.mathVirtualKeyboard) {
+        if (win.mathVirtualKeyboard.visible) {
+          win.mathVirtualKeyboard.hide?.();
+          setIsVirtualKeyboardOpen(false);
+        } else {
+          win.mathVirtualKeyboard.show?.();
+          setIsVirtualKeyboardOpen(true);
+        }
+      } else {
+        onToast(isZh ? '虚拟键盘正在初始化中，请稍候' : 'Virtual keyboard initializing', 'info');
       }
-      onChange(nextVal);
-    }, [value, mode, onChange, onToast, t]);
+    }, [isZh, onToast]);
+
+    // 剪贴板安全粘贴清洗
+    const handlePaste = useCallback(
+      (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+        const text = e.clipboardData.getData('text/plain');
+        if (!text) return;
+
+        const { normalized, wasModified } = normalizePastedLatex(text);
+        if (wasModified) {
+          e.preventDefault();
+          const ta = textareaRef.current;
+          if (!ta) return;
+          const start = ta.selectionStart;
+          const end = ta.selectionEnd;
+          const nextVal = ta.value.slice(0, start) + normalized + ta.value.slice(end);
+          onChange(nextVal);
+          const newPos = start + normalized.length;
+          setTimeout(() => {
+            ta.setSelectionRange(newPos, newPos);
+          }, 0);
+        }
+      },
+      [onChange]
+    );
 
     // 源码模式快捷键操作
     const handleSourceKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       const ta = textareaRef.current;
       if (!ta) return;
 
+      // 中文输入法 IME Composition 期间严禁截断或提前自动补全，杜绝丢拼音和候选词错乱
+      if (isComposingRef.current || e.nativeEvent.isComposing) {
+        return;
+      }
+
       const start = ta.selectionStart;
       const end = ta.selectionEnd;
-      const sel = ta.value.substring(start, end);
 
+      // 撤销与重做
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         if (e.shiftKey) handleStepForward();
@@ -520,9 +639,17 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         return;
       }
 
+      // Tab / Shift+Tab 占位符统一双向导航
       if (e.key === 'Tab') {
         e.preventDefault();
         if (e.shiftKey) {
+          const prevSlot = findPrevPlaceholder(ta.value, start);
+          if (prevSlot) {
+            ta.focus();
+            ta.setSelectionRange(prevSlot.start, prevSlot.end);
+            return;
+          }
+          // 无占位符时执行向左缩进
           const lineStart = ta.value.lastIndexOf('\n', start - 1) + 1;
           if (ta.value.substring(lineStart, lineStart + 2) === '  ') {
             const nextVal = ta.value.substring(0, lineStart) + ta.value.substring(lineStart + 2);
@@ -533,69 +660,65 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
             }, 0);
           }
         } else {
-          const text = ta.value;
-          const nextPlaceholder = text.indexOf('\\square', end);
-          if (nextPlaceholder !== -1) {
+          const nextSlot = findNextPlaceholder(ta.value, end);
+          if (nextSlot) {
             ta.focus();
-            ta.setSelectionRange(nextPlaceholder, nextPlaceholder + 7);
-          } else {
-            const nextVal = ta.value.substring(0, start) + '  ' + ta.value.substring(end);
-            onChange(nextVal);
-            setTimeout(() => {
-              ta.setSelectionRange(start + 2, start + 2);
-            }, 0);
+            ta.setSelectionRange(nextSlot.start, nextSlot.end);
+            return;
           }
+          // 无占位符时插入 2 个空格缩进
+          const nextVal = ta.value.substring(0, start) + '  ' + ta.value.substring(end);
+          onChange(nextVal);
+          setTimeout(() => {
+            ta.setSelectionRange(start + 2, start + 2);
+          }, 0);
         }
         return;
       }
 
-      const wrapPairs: Record<string, string> = {
-        '(': ')',
-        '{': '}',
-        '[': ']',
-        '$': '$',
-        '"': '"',
-      };
+      // 括号自动补齐与跳过已有匹配右括号
+      const pairRes = handleBracketAutoPair(e.key, {
+        value: ta.value,
+        selectionStart: start,
+        selectionEnd: end,
+      });
+      if (pairRes.handled && pairRes.nextState) {
+        e.preventDefault();
+        onChange(pairRes.nextState.value);
+        const { selectionStart: sStart, selectionEnd: sEnd } = pairRes.nextState;
+        setTimeout(() => {
+          ta.setSelectionRange(sStart, sEnd);
+        }, 0);
+        return;
+      }
 
-      if (wrapPairs[e.key]) {
-        if (start !== end) {
+      // 空格与 Enter：触发快捷扩展与命令补全
+      if (e.key === ' ' || e.key === 'Enter') {
+        // 命令补全 (例如 \frac -> \frac{\placeholder{}}{\placeholder{}})
+        const compRes = checkCommandCompletion({
+          value: ta.value,
+          selectionStart: start,
+          selectionEnd: end,
+        });
+        if (compRes.handled && compRes.nextState) {
           e.preventDefault();
-          const open = e.key;
-          const close = wrapPairs[e.key];
-          const wrapped = open + sel + close;
-          const nextVal = ta.value.substring(0, start) + wrapped + ta.value.substring(end);
-          onChange(nextVal);
+          onChange(compRes.nextState.value);
+          const { selectionStart: sStart, selectionEnd: sEnd } = compRes.nextState;
           setTimeout(() => {
-            ta.setSelectionRange(start + 1, end + 1);
-          }, 0);
-          return;
-        } else if (e.key === '{' || e.key === '(' || e.key === '[') {
-          e.preventDefault();
-          const open = e.key;
-          const close = wrapPairs[e.key];
-          const nextVal = ta.value.substring(0, start) + open + close + ta.value.substring(end);
-          onChange(nextVal);
-          setTimeout(() => {
-            ta.setSelectionRange(start + 1, start + 1);
+            ta.setSelectionRange(sStart, sEnd);
           }, 0);
           return;
         }
-      }
 
-      if (e.key === 'Backspace' && start === end && start > 0) {
-        const prevChar = ta.value[start - 1];
-        const nextChar = ta.value[start];
-        if (
-          (prevChar === '(' && nextChar === ')') ||
-          (prevChar === '{' && nextChar === '}') ||
-          (prevChar === '[' && nextChar === ']')
-        ) {
+        // 确定性快捷词扩展 (alpha -> \alpha, sin -> \sin, >= -> \ge)
+        const shortcutRes = tryExpandShortcut(ta.value, start);
+        if (shortcutRes) {
           e.preventDefault();
-          const nextVal = ta.value.substring(0, start - 1) + ta.value.substring(start + 1);
-          onChange(nextVal);
+          onChange(shortcutRes.expandedText);
           setTimeout(() => {
-            ta.setSelectionRange(start - 1, start - 1);
+            ta.setSelectionRange(shortcutRes.newCursor, shortcutRes.newCursor);
           }, 0);
+          return;
         }
       }
     };
@@ -605,7 +728,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
       const { sanitized, wasModified } = sanitizeMathForDisplay(value);
       if (wasModified) {
         if (mode === 'visual' && mathfieldRef.current) {
-          mathfieldRef.current.setValue(sanitized.replace(/\\square/g, '\\placeholder{}'));
+          safeSetMathfieldValue(mathfieldRef.current, sanitized.replace(/\\square/g, '\\placeholder{}'));
         }
         onChange(sanitized);
         onToast(t.toastNormalizedSuccess, 'success');
@@ -618,7 +741,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
     const handleAppendRow = useCallback(() => {
       const nextVal = appendMatrixRow(value);
       if (mode === 'visual' && mathfieldRef.current) {
-        mathfieldRef.current.setValue(nextVal.replace(/\\square/g, '\\placeholder{}'));
+        safeSetMathfieldValue(mathfieldRef.current, nextVal.replace(/\\square/g, '\\placeholder{}'));
       }
       onChange(nextVal);
       onToast(t.matrixAddRow, 'info');
@@ -628,11 +751,29 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
     const handleAppendColumn = useCallback(() => {
       const nextVal = appendMatrixCol(value);
       if (mode === 'visual' && mathfieldRef.current) {
-        mathfieldRef.current.setValue(nextVal.replace(/\\square/g, '\\placeholder{}'));
+        safeSetMathfieldValue(mathfieldRef.current, nextVal.replace(/\\square/g, '\\placeholder{}'));
       }
       onChange(nextVal);
       onToast(t.matrixAddCol, 'info');
     }, [value, mode, onChange, onToast, t]);
+
+    // 删除一行
+    const handleDeleteRow = useCallback(() => {
+      const nextVal = deleteMatrixRow(value);
+      if (mode === 'visual' && mathfieldRef.current) {
+        safeSetMathfieldValue(mathfieldRef.current, nextVal.replace(/\\square/g, '\\placeholder{}'));
+      }
+      onChange(nextVal);
+    }, [value, mode, onChange]);
+
+    // 删除一列
+    const handleDeleteColumn = useCallback(() => {
+      const nextVal = deleteMatrixCol(value);
+      if (mode === 'visual' && mathfieldRef.current) {
+        safeSetMathfieldValue(mathfieldRef.current, nextVal.replace(/\\square/g, '\\placeholder{}'));
+      }
+      onChange(nextVal);
+    }, [value, mode, onChange]);
 
     // 暴露给符号面板与父组件的命令式操作
     useImperativeHandle(
@@ -666,12 +807,12 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         setValue: (val: string) => {
           if (mathfieldRef.current) {
             const visual = val.replace(/\\square/g, '\\placeholder{}');
-            mathfieldRef.current.setValue(visual, { selectionMode: 'after' });
+            safeSetMathfieldValue(mathfieldRef.current, visual, { selectionMode: 'after' });
           }
           onChange(val);
           setTimeout(() => {
             if (mode === 'visual') {
-              mathfieldRef.current?.focus();
+              safeFocusMathfield(mathfieldRef.current);
             } else {
               textareaRef.current?.focus();
             }
@@ -679,7 +820,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         },
         focus: () => {
           if (mode === 'visual') {
-            mathfieldRef.current?.focus();
+            safeFocusMathfield(mathfieldRef.current);
           } else {
             textareaRef.current?.focus();
           }
@@ -688,9 +829,11 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         jumpToPosition: jumpToPositionInternal,
         appendRow: handleAppendRow,
         appendColumn: handleAppendColumn,
+        deleteRow: handleDeleteRow,
+        deleteColumn: handleDeleteColumn,
         normalizeFullwidthAndChinese: handleNormalizePunctuation,
       }),
-      [mode, onChange, jumpToPositionInternal, handleAppendRow, handleAppendColumn, handleNormalizePunctuation]
+      [mode, onChange, jumpToPositionInternal, handleAppendRow, handleAppendColumn, handleDeleteRow, handleDeleteColumn, handleNormalizePunctuation]
     );
 
     useEffect(() => {
@@ -868,6 +1011,23 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
               <span className="hidden sm:inline">{copiedLatex ? (isZh ? '已复制' : 'Copied!') : t.copyLatex}</span>
             </button>
 
+            {/* 屏幕数学虚拟键盘开关按钮 */}
+            <button
+              type="button"
+              className={`btn btn-sm ${isVirtualKeyboardOpen ? 'btn-primary' : ''}`}
+              onClick={handleToggleVirtualKeyboard}
+              title={t.virtualKeyboardTooltip}
+              aria-label={t.virtualKeyboardToggle}
+              aria-pressed={isVirtualKeyboardOpen}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect width="20" height="16" x="2" y="4" rx="2" />
+                <path d="M6 8h.001M10 8h.001M14 8h.001M18 8h.001M6 12h.001M10 12h.001M14 12h.001M18 12h.001M7 16h10" />
+              </svg>
+              <span className="hidden sm:inline">{t.virtualKeyboardToggle}</span>
+            </button>
+
+            {/* 定界符切换 (四种模式) */}
             <button
               type="button"
               className="btn btn-sm"
@@ -884,7 +1044,9 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
                   ? t.delimitersNone
                   : delimiterMode === 'inline'
                   ? t.delimitersInline
-                  : t.delimitersDisplay}
+                  : delimiterMode === 'display'
+                  ? t.delimitersDisplay
+                  : t.delimitersEquation}
               </span>
             </button>
 
@@ -943,7 +1105,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         <div
           style={{ display: mode === 'visual' ? 'block' : 'none' }}
           className="visual-editor-container"
-          onClick={() => mathfieldRef.current?.focus()}
+          onClick={() => safeFocusMathfield(mathfieldRef.current)}
         >
           <div
             ref={mathfieldContainerRef}
