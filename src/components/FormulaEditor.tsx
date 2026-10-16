@@ -66,16 +66,18 @@ function safeSetMathfieldValue(
   mf: MathfieldElement | null,
   val: string,
   options?: Parameters<MathfieldElement['setValue']>[1]
-) {
-  if (!mf) return;
+): boolean {
+  if (!mf) return false;
   try {
     if (typeof mf.setValue === 'function') {
       mf.setValue(val, options);
     } else {
       mf.value = val;
     }
+    return true;
   } catch (err) {
     console.warn('Failed to set Mathfield value:', err);
+    return false;
   }
 }
 
@@ -113,6 +115,11 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
     const mathfieldRef = useRef<MathfieldElement | null>(null);
     const isMathfieldInternalChangeRef = useRef<boolean>(false);
     const [isVirtualKeyboardOpen, setIsVirtualKeyboardOpen] = useState<boolean>(false);
+    const [visualLoadFailed, setVisualLoadFailed] = useState<boolean>(false);
+    const visualLoadFailedRef = useRef<boolean>(false);
+    useEffect(() => {
+      visualLoadFailedRef.current = visualLoadFailed;
+    }, [visualLoadFailed]);
 
     // 源码模式 Textarea 相关 Ref
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -194,11 +201,17 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
           setTimeout(() => {
             if (mathfieldRef.current) {
               const visualSnippet = value.replace(/\\square/g, '\\placeholder{}');
-              safeSetMathfieldValue(mathfieldRef.current, visualSnippet, { selectionMode: 'item' });
-              safeFocusMathfield(mathfieldRef.current);
+              const ok = safeSetMathfieldValue(mathfieldRef.current, visualSnippet, { selectionMode: 'item' });
+              if (!ok) {
+                setVisualLoadFailed(true);
+              } else {
+                setVisualLoadFailed(false);
+                safeFocusMathfield(mathfieldRef.current);
+              }
             }
           }, 50);
         } else {
+          setVisualLoadFailed(false);
           onToast(t.modeSwitchedToSource, 'info');
           setTimeout(() => {
             textareaRef.current?.focus();
@@ -242,9 +255,13 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
 
       // 监听用户在视觉框中的实时编辑，仅在视觉模式激活时同步更新 LaTeX 状态
       const handleInput = () => {
-        if (modeRef.current !== 'visual') return;
+        if (modeRef.current !== 'visual' || visualLoadFailedRef.current) return;
         isMathfieldInternalChangeRef.current = true;
         const currentLatex = mf.value;
+        // 视觉模式初始化失败或异常时，绝对禁止用空值或旧值覆盖现有权威源码
+        if (!currentLatex && value.trim().length > 0) {
+          return;
+        }
         onChange(currentLatex);
         setTimeout(() => {
           isMathfieldInternalChangeRef.current = false;
@@ -261,42 +278,54 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         }
       };
 
+      // 视觉编辑器的剪贴板安全清洗入口
+      const handleMfPaste = (e: ClipboardEvent) => {
+        const text = e.clipboardData?.getData('text/plain');
+        if (!text) return;
+        const { normalized, wasModified } = normalizePastedLatex(text);
+        if (wasModified) {
+          e.preventDefault();
+          e.stopPropagation();
+          isMathfieldInternalChangeRef.current = true;
+          try {
+            mf.insert(normalized, {
+              focus: true,
+              scrollIntoView: true,
+              selectionMode: 'after',
+            });
+            onChange(mf.value);
+          } catch (err) {
+            console.warn('Failed to insert normalized paste into mathfield:', err);
+          } finally {
+            setTimeout(() => {
+              isMathfieldInternalChangeRef.current = false;
+            }, 50);
+          }
+        }
+      };
+
       mf.addEventListener('input', handleInput);
       mf.addEventListener('keydown', handleMfKeyDown);
+      mf.addEventListener('paste', handleMfPaste);
 
       // 关键：必须先将 mf 挂载到 DOM 容器中，触发 connectedCallback
-      // 初始化内部 _mathfield，方可安全读取或设置 macros 等属性，避免 "Mathfield not mounted" 错误
+      // 初始化内部 _mathfield，避免 "Mathfield not mounted" 错误
       container.appendChild(mf);
       mathfieldRef.current = mf;
 
-      // 初始化显示值
+      // 初始化显示值（使用 MathLive 原生内置的 \mathrm, \mathbf, \mathbb, \mathcal, \operatorname, \boldsymbol，绝不进行递归宏重写）
       const initialVisual = value.replace(/\\square/g, '\\placeholder{}');
-      safeSetMathfieldValue(mf, initialVisual, { selectionMode: 'after' });
-
-      // 宏保护：防止 MathLive 自作主张将标准 \boldsymbol 改写为 \mathbf，保护科研用户宏定义
-      try {
-        let existingMacros = {};
-        try {
-          existingMacros = mf.macros || {};
-        } catch {
-          existingMacros = {};
-        }
-        mf.macros = {
-          ...existingMacros,
-          boldsymbol: { args: 1, def: '\\boldsymbol{#1}' },
-          mathbf: { args: 1, def: '\\mathbf{#1}' },
-          mathbb: { args: 1, def: '\\mathbb{#1}' },
-          mathcal: { args: 1, def: '\\mathcal{#1}' },
-          mathrm: { args: 1, def: '\\mathrm{#1}' },
-          operatorname: { args: 1, def: '\\operatorname{#1}' },
-        };
-      } catch (e) {
-        console.warn('Failed to configure Mathfield macros:', e);
+      const ok = safeSetMathfieldValue(mf, initialVisual, { selectionMode: 'after' });
+      if (!ok) {
+        setVisualLoadFailed(true);
+      } else {
+        setVisualLoadFailed(false);
       }
 
       return () => {
         mf.removeEventListener('input', handleInput);
         mf.removeEventListener('keydown', handleMfKeyDown);
+        mf.removeEventListener('paste', handleMfPaste);
         mf.remove();
         mathfieldRef.current = null;
       };
@@ -310,18 +339,37 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         const visualLatex = value.replace(/\\square/g, '\\placeholder{}');
         try {
           if (mathfieldRef.current.value !== visualLatex && mathfieldRef.current.value !== value) {
-            safeSetMathfieldValue(mathfieldRef.current, visualLatex, { selectionMode: 'after' });
+            const ok = safeSetMathfieldValue(mathfieldRef.current, visualLatex, { selectionMode: 'after' });
+            if (!ok) {
+              setVisualLoadFailed(true);
+            } else {
+              setVisualLoadFailed(false);
+            }
           }
         } catch {
-          // ignore
+          setVisualLoadFailed(true);
         }
       }
     }, [value, mode]);
 
     // 计算渲染状态 (Ready / Compiling / Error) 带防抖
     useEffect(() => {
+      if (visualLoadFailed && mode === 'visual') {
+        setRenderStatus('Error');
+        setRenderErrorMsg(isZh ? '该公式暂时无法载入视觉编辑器' : 'This formula cannot be loaded into the visual editor');
+        setLastErrorLocation(null);
+        return;
+      }
+
       setRenderStatus('Compiling');
       const timer = window.setTimeout(() => {
+        if (visualLoadFailed && mode === 'visual') {
+          setRenderStatus('Error');
+          setRenderErrorMsg(isZh ? '该公式暂时无法载入视觉编辑器' : 'This formula cannot be loaded into the visual editor');
+          setLastErrorLocation(null);
+          return;
+        }
+
         const outcome = renderFormulaSafely(value);
         if (outcome.success || !value.trim()) {
           setRenderStatus('Ready');
@@ -344,7 +392,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
       }, 140);
 
       return () => window.clearTimeout(timer);
-    }, [value]);
+    }, [value, visualLoadFailed, mode, isZh]);
 
     // 录入 10 级会话历史快照栈 (防抖 450ms)
     useEffect(() => {
@@ -1105,11 +1153,44 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         <div
           style={{ display: mode === 'visual' ? 'block' : 'none' }}
           className="visual-editor-container"
-          onClick={() => safeFocusMathfield(mathfieldRef.current)}
+          onClick={() => {
+            if (!visualLoadFailed) safeFocusMathfield(mathfieldRef.current);
+          }}
         >
+          {visualLoadFailed ? (
+            <div className="visual-load-error-container p-6 my-4 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50/80 dark:bg-amber-950/30 text-center flex flex-col items-center justify-center space-y-3">
+              <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 font-semibold text-base">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                <span>{isZh ? '该公式暂时无法载入视觉编辑器' : 'This formula cannot be loaded into the visual editor'}</span>
+              </div>
+              <p className="text-xs text-gray-600 dark:text-gray-400 max-w-md leading-relaxed">
+                {isZh
+                  ? '公式可能包含非标准宏定义或复杂排版结构。您的 LaTeX 源码已完好保留，请在源码模式下继续编辑。'
+                  : 'The formula may contain custom macros or complex structures. Your LaTeX source is safe; please edit in source mode.'}
+              </p>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm px-4 py-1.5 text-xs font-medium cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSwitchMode('source');
+                }}
+              >
+                {isZh ? '返回源码模式' : 'Return to Source Mode'}
+              </button>
+            </div>
+          ) : null}
           <div
             ref={mathfieldContainerRef}
-            style={{ width: '100%', minHeight: '160px' }}
+            style={{
+              width: '100%',
+              minHeight: visualLoadFailed ? '0px' : '160px',
+              display: visualLoadFailed ? 'none' : 'block',
+            }}
           />
         </div>
 
@@ -1130,6 +1211,13 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
               className="latex-textarea"
               value={value}
               onChange={(e) => onChange(e.target.value)}
+              onPaste={handlePaste}
+              onCompositionStart={() => {
+                isComposingRef.current = true;
+              }}
+              onCompositionEnd={() => {
+                isComposingRef.current = false;
+              }}
               onKeyDown={handleSourceKeyDown}
               onScroll={syncScroll}
               placeholder={t.editorPlaceholder}
