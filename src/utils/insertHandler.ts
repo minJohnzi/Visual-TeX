@@ -74,6 +74,9 @@ export function getMathliveInsertSnippet(item: PaletteItem): string {
   if (raw.startsWith('\\tilde{')) return '\\tilde{#@#?}';
   if (raw.startsWith('\\mathbf{')) return '\\mathbf{#@#?}';
   if (raw.startsWith('\\boldsymbol{')) return '\\boldsymbol{#@#?}';
+  if (raw.startsWith('\\text{')) return '\\text{#@#?}';
+  if (raw.startsWith('\\mathrm{')) return '\\mathrm{#@#?}';
+  if (raw.startsWith('\\operatorname{')) return '\\operatorname{#@#?}';
 
   // 11. 上下大括号
   if (raw.startsWith('\\overbrace{')) return '\\overbrace{#@#?}^{#?}';

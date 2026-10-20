@@ -251,7 +251,10 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
       // 创建并配置 MathfieldElement
       const mf = new MathfieldElement();
       mf.mathVirtualKeyboardPolicy = 'manual';
-      mf.smartMode = true;
+      // 禁用 smartMode：严格保持数学输入语义，禁止自动将连续拉丁字母转为 \text{}，保护变量独立性与间距
+      mf.smartMode = false;
+      // 在数学模式下保留空格意图为 thin space (\,)，正文模式下保留普通空格
+      mf.mathModeSpace = '\\,';
 
       // 监听用户在视觉框中的实时编辑，仅在视觉模式激活时同步更新 LaTeX 状态
       const handleInput = () => {
@@ -823,6 +826,73 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
       onChange(nextVal);
     }, [value, mode, onChange]);
 
+    // 手动格式与明确间隔操作 (\text{}, \mathrm{}, \operatorname{}, \,, \cdot)
+    const handleInsertFormat = useCallback(
+      (formatType: 'text' | 'mathrm' | 'operatorname' | 'thinspace' | 'cdot') => {
+        if (formatType === 'thinspace') {
+          if (mode === 'visual' && mathfieldRef.current) {
+            mathfieldRef.current.insert('\\,', { focus: true, scrollIntoView: true, selectionMode: 'after' });
+            onChange(mathfieldRef.current.value);
+          } else if (textareaRef.current) {
+            const ta = textareaRef.current;
+            const start = ta.selectionStart;
+            const end = ta.selectionEnd;
+            const next = ta.value.slice(0, start) + '\\,' + ta.value.slice(end);
+            onChange(next);
+            setTimeout(() => {
+              ta.focus();
+              ta.setSelectionRange(start + 2, start + 2);
+            }, 0);
+          }
+          return;
+        }
+
+        if (formatType === 'cdot') {
+          if (mode === 'visual' && mathfieldRef.current) {
+            mathfieldRef.current.insert('\\cdot', { focus: true, scrollIntoView: true, selectionMode: 'after' });
+            onChange(mathfieldRef.current.value);
+          } else if (textareaRef.current) {
+            const ta = textareaRef.current;
+            const start = ta.selectionStart;
+            const end = ta.selectionEnd;
+            const next = ta.value.slice(0, start) + '\\cdot ' + ta.value.slice(end);
+            onChange(next);
+            setTimeout(() => {
+              ta.focus();
+              ta.setSelectionRange(start + 6, start + 6);
+            }, 0);
+          }
+          return;
+        }
+
+        const macroName = formatType; // 'text' | 'mathrm' | 'operatorname'
+        if (mode === 'visual' && mathfieldRef.current) {
+          const mf = mathfieldRef.current;
+          mf.insert(`\\${macroName}{#@#?}`, { focus: true, scrollIntoView: true, selectionMode: 'placeholder' });
+          onChange(mf.value);
+        } else if (textareaRef.current) {
+          const ta = textareaRef.current;
+          const start = ta.selectionStart;
+          const end = ta.selectionEnd;
+          const selected = ta.value.slice(start, end);
+          const inner = selected || '\\square';
+          const inserted = `\\${macroName}{${inner}}`;
+          const next = ta.value.slice(0, start) + inserted + ta.value.slice(end);
+          onChange(next);
+          setTimeout(() => {
+            ta.focus();
+            if (selected) {
+              ta.setSelectionRange(start + inserted.length, start + inserted.length);
+            } else {
+              const pStart = start + `\\${macroName}{`.length;
+              ta.setSelectionRange(pStart, pStart + 7);
+            }
+          }, 0);
+        }
+      },
+      [mode, onChange]
+    );
+
     // 暴露给符号面板与父组件的命令式操作
     useImperativeHandle(
       ref,
@@ -1097,6 +1167,50 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
                   : t.delimitersEquation}
               </span>
             </button>
+
+            {/* 明确的手动格式与间隔快捷按钮 */}
+            <div className="inline-flex items-center rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 p-0.5 text-xs">
+              <button
+                type="button"
+                className="px-1.5 py-1 text-xs rounded hover:bg-white dark:hover:bg-slate-700 font-serif cursor-pointer transition-colors"
+                onClick={() => handleInsertFormat('text')}
+                title={isZh ? '正文模式 \\text{...}' : 'Normal Text \\text{...}'}
+              >
+                \text
+              </button>
+              <button
+                type="button"
+                className="px-1.5 py-1 text-xs rounded hover:bg-white dark:hover:bg-slate-700 font-serif cursor-pointer transition-colors"
+                onClick={() => handleInsertFormat('mathrm')}
+                title={isZh ? '直立变量 \\mathrm{...}' : 'Roman Math \\mathrm{...}'}
+              >
+                \mathrm
+              </button>
+              <button
+                type="button"
+                className="px-1.5 py-1 text-xs rounded hover:bg-white dark:hover:bg-slate-700 font-serif cursor-pointer transition-colors"
+                onClick={() => handleInsertFormat('operatorname')}
+                title={isZh ? '自定义算子 \\operatorname{...}' : 'Operator \\operatorname{...}'}
+              >
+                \operatorname
+              </button>
+              <button
+                type="button"
+                className="px-1.5 py-1 text-xs rounded hover:bg-white dark:hover:bg-slate-700 font-mono font-semibold cursor-pointer transition-colors"
+                onClick={() => handleInsertFormat('thinspace')}
+                title={isZh ? '薄空格 \\,' : 'Thin Space \\,'}
+              >
+                \,
+              </button>
+              <button
+                type="button"
+                className="px-1.5 py-1 text-xs rounded hover:bg-white dark:hover:bg-slate-700 font-mono font-semibold cursor-pointer transition-colors"
+                onClick={() => handleInsertFormat('cdot')}
+                title={isZh ? '乘号点 \\cdot' : 'Multiplication Dot \\cdot'}
+              >
+                \cdot
+              </button>
+            </div>
 
             {/* 中文全角标点纠正与汉字规范化按钮 */}
             <button

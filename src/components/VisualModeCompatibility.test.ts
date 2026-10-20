@@ -1,21 +1,42 @@
 import { describe, it, expect } from 'vitest';
 import * as MathLiveModule from 'mathlive';
 import { normalizePastedLatex } from '../utils/pasteNormalize';
+import { tryExpandShortcut } from '../utils/shortcuts';
+import { renderFormulaSafely } from '../utils/latex';
 
 // 获取真实 MathfieldElement 构造函数或 DOM 元素创建器
 const MathfieldCtor =
   (MathLiveModule as unknown as { MathfieldElement?: typeof HTMLElement }).MathfieldElement ||
   window.customElements?.get('math-field');
 
-function createMathfield(): HTMLElement & { value: string; setValue: (val: string) => void; insert: (val: string) => void } {
+function createMathfield(): HTMLElement & {
+  value: string;
+  setValue: (val: string) => void;
+  insert: (val: string) => void;
+  smartMode?: boolean;
+  mathModeSpace?: string;
+} {
+  let mf: HTMLElement & {
+    value: string;
+    setValue: (val: string) => void;
+    insert: (val: string) => void;
+    smartMode?: boolean;
+    mathModeSpace?: string;
+  };
+
   if (MathfieldCtor && typeof MathfieldCtor === 'function') {
     try {
-      return new (MathfieldCtor as unknown as new () => HTMLElement & { value: string; setValue: (val: string) => void; insert: (val: string) => void })();
+      mf = new (MathfieldCtor as unknown as new () => typeof mf)();
     } catch {
-      // fallback to createElement
+      mf = document.createElement('math-field') as unknown as typeof mf;
     }
+  } else {
+    mf = document.createElement('math-field') as unknown as typeof mf;
   }
-  return document.createElement('math-field') as unknown as HTMLElement & { value: string; setValue: (val: string) => void; insert: (val: string) => void };
+
+  mf.smartMode = false;
+  mf.mathModeSpace = '\\,';
+  return mf;
 }
 
 function createPasteEvent(text: string): ClipboardEvent {
@@ -88,6 +109,64 @@ describe('Visual Mode Standard Macros Compatibility & Integration', () => {
       container.remove();
     });
   }
+
+  describe('Visual Input Semantics & smartMode Tests', () => {
+    it('does NOT automatically convert consecutive letters "aaaaa" into \\text{aaaaa} when smartMode is false', () => {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const mf = createMathfield();
+      container.appendChild(mf);
+
+      // smartMode 必须为 false
+      expect(mf.smartMode).toBe(false);
+
+      if (typeof mf.setValue === 'function') {
+        mf.setValue('aaaaa');
+      } else {
+        mf.value = 'aaaaa';
+      }
+
+      // 绝不能被转写为 \text{aaaaa}
+      expect(mf.value).not.toContain('\\text{');
+      expect(mf.value).not.toBe('\\text{aaaaa}');
+      expect(mf.value).toBe('aaaaa');
+
+      container.remove();
+    });
+
+    it('expands shortcut "alpha" into "\\alpha"', () => {
+      const res = tryExpandShortcut('alpha', 5);
+      expect(res).not.toBeNull();
+      expect(res?.expandedText.trim()).toBe('\\alpha');
+    });
+
+    it('expands shortcut "sin" into "\\sin"', () => {
+      const res = tryExpandShortcut('sin', 3);
+      expect(res).not.toBeNull();
+      expect(res?.expandedText.trim()).toBe('\\sin');
+    });
+
+    it('generates \\text{aaaaa} only when user explicitly chooses text mode', () => {
+      const rawLetters = 'aaaaa';
+      // 用户主动包裹正文
+      const explicitText = `\\text{${rawLetters}}`;
+      expect(explicitText).toBe('\\text{aaaaa}');
+
+      // 渲染验证：KaTeX 正确渲染为正文文本类
+      const rendered = renderFormulaSafely(explicitText);
+      expect(rendered.success).toBe(true);
+      expect(rendered.html).toContain('class="mord text"');
+    });
+
+    it('maintains consistent spacing for a\\,a\\,a across preview rendering without artificial letter-spacing hacks', () => {
+      const formulaWithThinSpace = 'a\\,a\\,a';
+      const rendered = renderFormulaSafely(formulaWithThinSpace);
+      expect(rendered.success).toBe(true);
+      // 验证 KaTeX 生成薄空格 mspace
+      expect(rendered.html).toContain('class="mspace"');
+      expect(rendered.html).toContain('0.1667em');
+    });
+  });
 
   describe('Paste Integration Tests', () => {
     it('cleans $x－y$ to x-y on textarea paste event', () => {

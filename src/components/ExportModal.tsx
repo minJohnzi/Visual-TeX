@@ -40,9 +40,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   const outcome = useMemo(() => renderFormulaSafely(latex), [latex]);
   const isEmpty = !latex.trim() || !outcome.cleanedLatex.trim();
 
-  if (!isOpen) return null;
-
-  // 动态计算微发光样式用于弹窗内实时预览
+  // 动态计算微发光样式用于弹窗内实时预览（必须在早期 return 前调用以符合 React Hooks 规则）
   const haloFilter = useMemo(() => {
     if (bgMode !== 'checker' || !adaptiveHalo) return undefined;
     let col = textColor;
@@ -51,6 +49,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     const halo = isLight ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.98)';
     return `drop-shadow(0 0 2px ${halo}) drop-shadow(0 0 1px ${halo})`;
   }, [bgMode, adaptiveHalo, textColor]);
+
+  if (!isOpen) return null;
 
   const handleCopy = async () => {
     if (isEmpty) {
