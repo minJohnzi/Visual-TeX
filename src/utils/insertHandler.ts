@@ -1,5 +1,6 @@
 import { MathfieldElement } from 'mathlive';
 import type { PaletteItem } from '../data/symbols';
+import { mathfieldToSourceLatex, unwrapDisplaylines } from './latex';
 
 /**
  * 将符号模板智能转换为 MathLive 原生占位符与选区捕获语法：
@@ -135,13 +136,105 @@ export function getMathliveInsertSnippet(item: PaletteItem): string {
 }
 
 /**
+ * 在 MathLive 视觉编辑器中安全执行换行：
+ * 1. 若当前光标处于下标 (G_4)、上标 (x^2)、分式分子/分母或根号等内部嵌套分支，
+ *    自动调用 moveAfterParent 跳出至当前行顶层，解决在下标/分式末尾按回车无法换行的问题
+ * 2. 执行 MathLive 原生 addRowAfter 创建新行并切分光标前后内容
+ * 3. 返回剥离了 \displaylines{} 的标准多行 LaTeX 源码
+ */
+export function insertVisualLineBreak(mf: MathfieldElement): string {
+  try {
+    mf.focus?.();
+    const beforeVal = mf.value;
+    let ok =
+      typeof mf.executeCommand === 'function' ? mf.executeCommand('addRowAfter') : false;
+
+    // 若当前光标位于下标 (如 G_4)、上标、分式或根号内部，addRowAfter 会返回 false；
+    // 自动逐层调用 moveAfterParent 跳出到行级后再执行 addRowAfter
+    let guard = 0;
+    while (!ok && guard < 10 && typeof mf.executeCommand === 'function') {
+      const moved = mf.executeCommand('moveAfterParent');
+      if (!moved) break;
+      ok = mf.executeCommand('addRowAfter');
+      guard++;
+    }
+
+    if (!ok && mf.value === beforeVal) {
+      const cleaned = unwrapDisplaylines(beforeVal)
+        .replace(/\r?\n/g, ' ')
+        .trim();
+      const nextDisplay = cleaned ? `\\displaylines{${cleaned} \\\\ }` : `\\displaylines{ \\\\ }`;
+      if (typeof mf.setValue === 'function') {
+        mf.setValue(nextDisplay, { selectionMode: 'after' });
+      } else {
+        mf.value = nextDisplay;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to insert visual line break:', err);
+  }
+
+  return mathfieldToSourceLatex(mf.value);
+}
+
+/**
+ * 在源码编辑器 (Textarea) 中插入换行：
+ * - explicitLatexBreak = true 时（Shift+Enter / Ctrl+Enter / 工具栏换行按钮）：
+ *   自动在当前行光标处补齐 ` \\` 并换行，同时继承当前行缩进
+ * - explicitLatexBreak = false 时（普通 Enter）：
+ *   插入 `\n` 并自动继承当前行缩进
+ */
+export function insertSourceLineBreak(
+  ta: HTMLTextAreaElement,
+  explicitLatexBreak: boolean
+): { nextValue: string; cursor: number; cursorStart: number; cursorEnd: number } {
+  const start = ta.selectionStart ?? 0;
+  const end = ta.selectionEnd ?? 0;
+  const val = ta.value;
+  const before = val.slice(0, start);
+  const after = val.slice(end);
+
+  const lineStart = before.lastIndexOf('\n') + 1;
+  const currentLineBeforeCursor = before.slice(lineStart);
+  const indentMatch = currentLineBeforeCursor.match(/^([ \t]*)/);
+  const indent = indentMatch ? indentMatch[1] : '';
+
+  if (explicitLatexBreak) {
+    const trimmedLineBefore = currentLineBeforeCursor.trimEnd();
+    const alreadyHasBreak = /\\\\(?:\s*\[[^\]]*\])?$/.test(trimmedLineBefore);
+    if (alreadyHasBreak) {
+      const inserted = `\n${indent}`;
+      const nextValue = before + inserted + after;
+      const cursor = start + inserted.length;
+      return { nextValue, cursor, cursorStart: cursor, cursorEnd: cursor };
+    }
+    const needsSpace =
+      currentLineBeforeCursor.length > 0 && !/\s$/.test(currentLineBeforeCursor);
+    const breakPrefix = needsSpace ? ' \\\\' : '\\\\';
+    const inserted = `${breakPrefix}\n${indent}`;
+    const nextValue = before + inserted + after;
+    const cursor = start + inserted.length;
+    return { nextValue, cursor, cursorStart: cursor, cursorEnd: cursor };
+  }
+
+  const inserted = `\n${indent}`;
+  const nextValue = before + inserted + after;
+  const cursor = start + inserted.length;
+  return { nextValue, cursor, cursorStart: cursor, cursorEnd: cursor };
+}
+
+/**
  * MathLive 视觉模式的增量智能插入操作
  */
 export function smartInsertIntoMathfield(
   mf: MathfieldElement,
   item: PaletteItem
 ): string {
-  mf.focus();
+  mf.focus?.();
+  if (item.latex.trim() === '\\\\') {
+    return insertVisualLineBreak(mf);
+  }
+
   const snippet = getMathliveInsertSnippet(item);
   const hasPlaceholder = snippet.includes('#?') || snippet.includes('#@');
 
@@ -151,7 +244,7 @@ export function smartInsertIntoMathfield(
     selectionMode: hasPlaceholder ? 'placeholder' : 'after',
   });
 
-  return mf.value;
+  return mathfieldToSourceLatex(mf.value);
 }
 
 /**

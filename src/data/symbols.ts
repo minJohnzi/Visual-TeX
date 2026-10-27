@@ -412,6 +412,7 @@ export const PALETTE_CATEGORIES: PaletteCategory[] = [
       { label: '考研答案加框 (boxed)', labelEn: 'Boxed Result (boxed)', latex: '\\boxed{\\square}', wrap: '\\boxed{${SEL}}', display: '\\boxed{x}' },
       { label: '细空格 (\\,)', labelEn: 'Thin Space (\\,)', latex: '\\, ', display: 'a\\,b' },
       { label: '大空格 (quad)', labelEn: 'Space (quad)', latex: '\\quad ', display: '\\text{a}\\quad\\text{b}' },
+      { label: '公式换行 (\\\\)', labelEn: 'Line Break (\\\\)', latex: ' \\\\\n', display: '\\text{A}\\\\\\text{B}' },
       { label: '无穷大 (∞)', labelEn: 'Infinity (∞)', latex: '\\infty ', display: '\\infty' },
       { label: '约化普朗克常数 (ℏ)', labelEn: 'Reduced Planck (ℏ)', latex: '\\hbar ', display: '\\hbar' },
       { label: '角度度数 (°)', labelEn: 'Degree (°)', latex: '^\\circ ', wrap: '{${SEL}}^\\circ', display: '30^\\circ' },

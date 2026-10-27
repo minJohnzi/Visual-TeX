@@ -269,13 +269,338 @@ export function sanitizeMathForDisplay(latex: string): {
 }
 
 /**
+ * 格式化顶层 \\ 换行符，使其后紧跟真实换行符 \n（忽略 \begin{...}...\end{...} 与 {...} 内部）
+ */
+function formatTopLevelBreaksWithNewline(code: string): string {
+  if (!code) return '';
+  let result = '';
+  let envDepth = 0;
+  let braceDepth = 0;
+  const len = code.length;
+  let i = 0;
+
+  while (i < len) {
+    if (code[i] === '\\') {
+      const rest = code.slice(i);
+      const beginMatch = rest.match(/^\\begin\s*\{[^}]+\}/);
+      if (beginMatch) {
+        envDepth++;
+        result += beginMatch[0];
+        i += beginMatch[0].length;
+        continue;
+      }
+      const endMatch = rest.match(/^\\end\s*\{[^}]+\}/);
+      if (endMatch) {
+        envDepth = Math.max(0, envDepth - 1);
+        result += endMatch[0];
+        i += endMatch[0].length;
+        continue;
+      }
+
+      // 顶层 \\ 换行符
+      if (
+        envDepth === 0 &&
+        braceDepth === 0 &&
+        rest.startsWith('\\\\') &&
+        (rest.length === 2 || !/[a-zA-Z]/.test(rest[2]))
+      ) {
+        const breakMatch = rest.match(/^(\\\\(?:[ \t]*\[[^\]]*\])?)[ \t]*(\r?\n)?/);
+        if (breakMatch) {
+          const breakToken = breakMatch[1];
+          // 确保 \\ 前有一个空格（若前方非空且非空白）
+          if (result.length > 0 && !/\s$/.test(result)) {
+            result += ' ';
+          }
+          result += `${breakToken}\n`;
+          i += breakMatch[0].length;
+          continue;
+        }
+      }
+
+      if (i + 1 < len) {
+        result += code[i] + code[i + 1];
+        i += 2;
+        continue;
+      }
+    }
+
+    if (code[i] === '{') {
+      braceDepth++;
+      result += code[i];
+      i++;
+      continue;
+    }
+    if (code[i] === '}') {
+      braceDepth = Math.max(0, braceDepth - 1);
+      result += code[i];
+      i++;
+      continue;
+    }
+
+    result += code[i];
+    i++;
+  }
+
+  return result;
+}
+
+/**
+ * 剥离并展开 MathLive / Plain TeX 的 \displaylines{...} 多行结构为标准多行 LaTeX
+ */
+export function unwrapDisplaylines(latex: string): string {
+  if (!latex || !latex.includes('\\displaylines')) return latex;
+
+  let result = latex;
+  let safetyCounter = 0;
+
+  while (result.includes('\\displaylines') && safetyCounter < 20) {
+    safetyCounter++;
+    const idx = result.indexOf('\\displaylines');
+    if (idx === -1) break;
+
+    const afterCmd = idx + '\\displaylines'.length;
+    if (afterCmd < result.length && /[a-zA-Z]/.test(result[afterCmd])) {
+      break;
+    }
+
+    let braceStart = afterCmd;
+    while (braceStart < result.length && /\s/.test(result[braceStart])) {
+      braceStart++;
+    }
+
+    if (braceStart >= result.length || result[braceStart] !== '{') {
+      result = result.slice(0, idx) + result.slice(afterCmd).trimStart();
+      continue;
+    }
+
+    let depth = 0;
+    let braceEnd = -1;
+    for (let i = braceStart; i < result.length; i++) {
+      if (result[i] === '\\') {
+        i++;
+        continue;
+      }
+      if (result[i] === '{') {
+        depth++;
+      } else if (result[i] === '}') {
+        depth--;
+        if (depth === 0) {
+          braceEnd = i;
+          break;
+        }
+      }
+    }
+
+    const inner =
+      braceEnd !== -1
+        ? result.slice(braceStart + 1, braceEnd)
+        : result.slice(braceStart + 1);
+
+    const formattedInner = formatTopLevelBreaksWithNewline(inner);
+
+    result =
+      result.slice(0, idx) +
+      formattedInner +
+      (braceEnd !== -1 ? result.slice(braceEnd + 1) : '');
+  }
+
+  return result;
+}
+
+/**
+ * 顶层多行结构扫描分析：
+ * 精确跟踪 \begin{...} / \end{...} 环境深度与 { ... } 花括号深度，
+ * 仅在顶层（envDepth === 0 && braceDepth === 0）识别：
+ * - 顶层换行符：\\ (含可选间距 \\[4pt] 与紧随其后的 \n) 或 顶层独立换行 \n
+ * - 顶层对齐符：未转义的 &
+ */
+export function analyzeTopLevelMultiline(code: string): {
+  lines: string[];
+  hasTopLevelBreak: boolean;
+  hasTopLevelAmpersand: boolean;
+  isMultiLine: boolean;
+} {
+  const lines: string[] = [];
+  let current = '';
+  let envDepth = 0;
+  let braceDepth = 0;
+  let hasTopLevelBreak = false;
+  let hasTopLevelAmpersand = false;
+
+  const len = code.length;
+  let i = 0;
+
+  while (i < len) {
+    if (code[i] === '\\') {
+      const rest = code.slice(i);
+      const beginMatch = rest.match(/^\\begin\s*\{[^}]+\}/);
+      if (beginMatch) {
+        envDepth++;
+        current += beginMatch[0];
+        i += beginMatch[0].length;
+        continue;
+      }
+      const endMatch = rest.match(/^\\end\s*\{[^}]+\}/);
+      if (endMatch) {
+        envDepth = Math.max(0, envDepth - 1);
+        current += endMatch[0];
+        i += endMatch[0].length;
+        continue;
+      }
+
+      if (
+        envDepth === 0 &&
+        braceDepth === 0 &&
+        rest.startsWith('\\\\') &&
+        (rest.length === 2 || !/[a-zA-Z]/.test(rest[2]))
+      ) {
+        hasTopLevelBreak = true;
+        const breakMatch = rest.match(/^\\\\(?:[ \t]*\[[^\]]*\])?[ \t]*(?:\r?\n)?/);
+        const consumed = breakMatch ? breakMatch[0].length : 2;
+        lines.push(current.trim());
+        current = '';
+        i += consumed;
+        continue;
+      }
+
+      if (i + 1 < len) {
+        current += code[i] + code[i + 1];
+        i += 2;
+        continue;
+      }
+    }
+
+    if (code[i] === '{') {
+      braceDepth++;
+      current += code[i];
+      i++;
+      continue;
+    }
+    if (code[i] === '}') {
+      braceDepth = Math.max(0, braceDepth - 1);
+      current += code[i];
+      i++;
+      continue;
+    }
+
+    if (envDepth === 0 && braceDepth === 0 && code[i] === '&') {
+      hasTopLevelAmpersand = true;
+      current += code[i];
+      i++;
+      continue;
+    }
+
+    if (
+      envDepth === 0 &&
+      braceDepth === 0 &&
+      (code[i] === '\n' || (code[i] === '\r' && code[i + 1] === '\n'))
+    ) {
+      const nlLen = code[i] === '\r' ? 2 : 1;
+      lines.push(current.trim());
+      current = '';
+      i += nlLen;
+      continue;
+    }
+
+    current += code[i];
+    i++;
+  }
+
+  lines.push(current.trim());
+
+  // 剔除未带显式 \\ 的末尾纯空白换行；若有显式 \\ (如刚按下换行)，保留末尾空行
+  while (lines.length > 1 && lines[lines.length - 1] === '' && !hasTopLevelBreak) {
+    lines.pop();
+  }
+  while (lines.length > 1 && lines[0] === '') {
+    lines.shift();
+  }
+
+  const nonEmptyCount = lines.filter((l) => l.length > 0).length;
+  const isMultiLine = lines.length > 1 && (nonEmptyCount > 1 || hasTopLevelBreak);
+
+  return {
+    lines,
+    hasTopLevelBreak,
+    hasTopLevelAmpersand,
+    isMultiLine,
+  };
+}
+
+/**
+ * 将标准源码 LaTeX 转换为 MathLive 视觉编辑器所需的格式：
+ * - 将 \square 转为 \placeholder{}
+ * - 若存在顶层多行（\\ 或 \n）且未被外层环境包裹：
+ *   - 含顶层 & 对齐符时包裹为 \begin{aligned} ... \end{aligned}
+ *   - 无顶层 & 对齐符时包裹为 \displaylines{ ... } 以激活 MathLive 原生多行左对齐视觉编辑
+ */
+export function sourceToMathfieldLatex(latex: string): string {
+  if (!latex) return '';
+  const withPlaceholders = latex.replace(/\\square/g, '\\placeholder{}');
+  const trimmed = withPlaceholders.trim();
+  if (!trimmed) return withPlaceholders;
+
+  if (/^\\displaylines\s*\{/.test(trimmed)) {
+    return withPlaceholders;
+  }
+
+  const topLevel = analyzeTopLevelMultiline(withPlaceholders);
+  if (!topLevel.isMultiLine && !topLevel.hasTopLevelBreak) {
+    return withPlaceholders;
+  }
+
+  const innerLines = topLevel.lines.join(' \\\\ ');
+  if (topLevel.hasTopLevelAmpersand) {
+    return `\\begin{aligned}${innerLines}\\end{aligned}`;
+  }
+  return `\\displaylines{${innerLines}}`;
+}
+
+/**
+ * 将 MathLive 视觉编辑器输出的 LaTeX 转换为标准、纯净的多行 LaTeX 源码
+ */
+export function mathfieldToSourceLatex(mfLatex: string): string {
+  if (!mfLatex) return '';
+  return unwrapDisplaylines(mfLatex);
+}
+
+/**
+ * 格式化整理多行 LaTeX 源码排版：
+ * - 展开 \displaylines{...}
+ * - 将顶层多行补齐标准 \\ 换行符并清理行尾多余空白
+ */
+export function formatMultilineLatex(rawLatex: string): string {
+  if (!rawLatex.trim()) return '';
+  const unwrapped = unwrapDisplaylines(rawLatex);
+  const topLevel = analyzeTopLevelMultiline(unwrapped);
+
+  if (topLevel.isMultiLine) {
+    return topLevel.lines
+      .map((line, idx) => {
+        const isLast = idx === topLevel.lines.length - 1;
+        if (isLast) return line;
+        return line ? `${line} \\\\` : '\\\\';
+      })
+      .join('\n')
+      .trim();
+  }
+
+  return unwrapped
+    .split('\n')
+    .map((l) => l.trimEnd())
+    .join('\n')
+    .trim();
+}
+
+/**
  * 一键语法自动修复（Auto Fix）与预览容错补全
- * 1. 纠正中文全角标点为标准 LaTeX 符号
- * 2. 自动给裸汉字包裹 \text{...}
- * 3. 自动将不支持的 align / align* / equation 替换为 aligned
- * 4. 补齐未闭合的 \left -> \right.
- * 5. 补齐不完整 \frac{...} 的缺失项为 \Box
- * 6. 补齐末尾未闭合的花括号 {
+ * 1. 剥离并展开 \displaylines{...}
+ * 2. 纠正中文全角标点为标准 LaTeX 符号
+ * 3. 自动给裸汉字包裹 \text{...}
+ * 4. 自动将不支持的 align / align* / equation / multline 替换为 aligned / gathered
+ * 5. 补齐未闭合的 \left -> \right.
+ * 6. 补齐不完整 \frac{...} 的缺失项为 \Box
+ * 7. 补齐末尾未闭合的花括号 {
  */
 export function autoFixLatexSyntax(rawLatex: string): {
   fixed: string;
@@ -283,7 +608,7 @@ export function autoFixLatexSyntax(rawLatex: string): {
 } {
   if (!rawLatex.trim()) return { fixed: rawLatex, wasModified: false };
 
-  let fixed = rawLatex;
+  let fixed = unwrapDisplaylines(rawLatex);
 
   // 1. 中文全角标点纠正
   fixed = normalizeFullwidthPunctuation(fixed);
@@ -291,11 +616,13 @@ export function autoFixLatexSyntax(rawLatex: string): {
   // 2. 裸汉字自动包裹
   fixed = autoWrapNakedChinese(fixed);
 
-  // 3. 环境替换：align / align* / equation -> aligned
+  // 3. 环境替换：align / align* / equation -> aligned, multline -> gathered
   fixed = fixed.replace(/\\begin\{align\*?\}/g, '\\begin{aligned}');
   fixed = fixed.replace(/\\end\{align\*?\}/g, '\\end{aligned}');
   fixed = fixed.replace(/\\begin\{equation\*?\}/g, '\\begin{aligned}');
   fixed = fixed.replace(/\\end\{equation\*?\}/g, '\\end{aligned}');
+  fixed = fixed.replace(/\\begin\{multline\*?\}/g, '\\begin{gathered}');
+  fixed = fixed.replace(/\\end\{multline\*?\}/g, '\\end{gathered}');
 
   // 4. 补齐未闭合的 \left ... \right.
   const leftMatches = fixed.match(/\\left(?![a-zA-Z])/g) || [];
@@ -334,71 +661,68 @@ export function autoFixLatexSyntax(rawLatex: string): {
  * 检查公式是否已经处于多行环境或矩阵等闭合环境中
  */
 export function hasEnclosingEnvironment(code: string): boolean {
-  const envRegex = /\\begin\{(aligned|align\*?|gathered|gather\*?|split|cases|[a-zA-Z]*matrix|array|eqnarray\*?|multiline)\}/i;
+  const envRegex = /\\begin\{(aligned|align\*?|gathered|gather\*?|split|cases|[a-zA-Z]*matrix|array|eqnarray\*?|multiline|multline\*?)\}/i;
   return envRegex.test(code);
 }
 
 /**
  * 纯公式预处理与多行智能包裹：
- * 1. 占位符转换与降级
+ * 1. 展开 \displaylines{...} 与占位符降级
  * 2. 中文全角标点归一化与裸汉字自动包裹
- * 3. 若包含回车换行 \n 或 \\ 或 & 对齐符，且未显式声明环境，自动为其包裹 \begin{aligned} ... \end{aligned}
+ * 3. 若顶层包含回车换行 \n 或 \\ 或 & 对齐符，自动为其包裹 \begin{aligned} ... \end{aligned}（无 & 时自动左对齐）
  */
 export function normalizePureMathForRender(rawMath: string): {
   normalized: string;
   wasAutoAligned: boolean;
   wasSanitized: boolean;
 } {
-  const cleanPlaceholders = rawMath
+  const unwrapped = unwrapDisplaylines(rawMath);
+  const wasUnwrapped = unwrapped !== rawMath;
+
+  const cleanPlaceholders = unwrapped
     .replace(/\\placeholder\{([^}]*)\}/g, (_m, inner) => (inner ? inner : '\\Box'))
     .replace(/\\placeholder/g, '\\Box')
     .replace(/\\square/g, '\\Box')
     .replace(/#\?/g, '\\Box')
-    .replace(/#@/g, '');
+    .replace(/#@/g, '')
+    .replace(/\\begin\{multline\*?\}/g, '\\begin{gathered}')
+    .replace(/\\end\{multline\*?\}/g, '\\end{gathered}');
 
   const { sanitized, wasModified } = sanitizeMathForDisplay(cleanPlaceholders);
   const trimmed = sanitized.trim();
   if (!trimmed) {
-    return { normalized: '', wasAutoAligned: false, wasSanitized: wasModified };
+    return { normalized: '', wasAutoAligned: false, wasSanitized: wasModified || wasUnwrapped };
   }
 
-  // 若已有环境，不重复包装
-  if (hasEnclosingEnvironment(trimmed)) {
-    return { normalized: trimmed, wasAutoAligned: false, wasSanitized: wasModified };
+  const topLevel = analyzeTopLevelMultiline(trimmed);
+
+  // 纯单行公式（或完整闭合在单一矩阵/aligned/cases环境内部）且顶层无对齐与分行指令，直接返回
+  if (!topLevel.isMultiLine && !topLevel.hasTopLevelBreak && !topLevel.hasTopLevelAmpersand) {
+    return { normalized: trimmed, wasAutoAligned: false, wasSanitized: wasModified || wasUnwrapped };
   }
 
-  const hasNewlines = trimmed.includes('\n');
-  const hasLatexBreaks = /\\\\(?!\w)/.test(trimmed);
-  const hasAlignMarkers = /(^|[^\\])&/.test(trimmed);
-
-  // 纯单行公式且无对齐与分行指令，直接返回
-  if (!hasNewlines && !hasLatexBreaks && !hasAlignMarkers) {
-    return { normalized: trimmed, wasAutoAligned: false, wasSanitized: wasModified };
-  }
-
-  // 针对多行或带 \\ / & 的公式进行 aligned 兼容包裹
-  const lines = trimmed.split('\n');
+  const lines = topLevel.lines;
   const processedLines: string[] = [];
 
   for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i];
-    const trimmedLine = rawLine.trim();
+    const trimmedLine = lines[i].trim();
+    const isLastLine = i === lines.length - 1;
 
-    if (!trimmedLine && i === lines.length - 1) {
+    if (!trimmedLine && isLastLine && processedLines.length > 0) {
       continue;
     }
 
-    const isLastLine = i === lines.length - 1 || lines.slice(i + 1).every((l) => !l.trim());
+    const alignedLine = topLevel.hasTopLevelAmpersand
+      ? trimmedLine
+      : trimmedLine
+      ? `&${trimmedLine}`
+      : '&';
 
-    if (!isLastLine) {
-      // 检查行尾是否已有 \\
-      if (!trimmedLine.endsWith('\\\\')) {
-        processedLines.push(trimmedLine ? `${trimmedLine} \\\\` : '\\\\');
-      } else {
-        processedLines.push(trimmedLine);
-      }
+    const hasMoreNonEmpty = lines.slice(i + 1).some((l) => l.trim().length > 0);
+    if (!isLastLine && hasMoreNonEmpty) {
+      processedLines.push(`${alignedLine} \\\\`);
     } else {
-      processedLines.push(trimmedLine);
+      processedLines.push(alignedLine);
     }
   }
 
@@ -408,7 +732,7 @@ export function normalizePureMathForRender(rawMath: string): {
   return {
     normalized: wrapped,
     wasAutoAligned: true,
-    wasSanitized: wasModified,
+    wasSanitized: wasModified || wasUnwrapped,
   };
 }
 
@@ -730,13 +1054,16 @@ export function estimateFormulaLineCount(rawLatex: string): {
     return { physicalLines: 1, latexBreakCount: 0, estimatedLines: 1, isMultiLine: false };
   }
 
+  const unwrapped = unwrapDisplaylines(rawLatex);
+  const topLevel = analyzeTopLevelMultiline(unwrapped);
   const physicalLines = rawLatex.split('\n').length;
-  const breakMatches = rawLatex.match(/\\\\(?!\w)/g);
+  const breakMatches = unwrapped.match(/\\\\(?!\w)/g);
   const latexBreakCount = breakMatches ? breakMatches.length : 0;
-  const estimatedLines =
+  const baseEstimated =
     physicalLines <= 1 && latexBreakCount > 0
       ? latexBreakCount + 1
       : Math.max(physicalLines, latexBreakCount > 0 ? latexBreakCount + 1 : 1);
+  const estimatedLines = Math.max(topLevel.lines.length, baseEstimated);
 
   return {
     physicalLines,
@@ -802,6 +1129,7 @@ export function renderFormulaSafely(rawLatex: string): RenderOutcome {
 
   // 模式二：纯公式模式 (Pure Math)
   const cleaned = modeDetect.cleanedText;
+  const unwrappedCleaned = unwrapDisplaylines(cleaned);
   const outerOffset = modeDetect.wasOuterStripped ? Math.max(0, rawLatex.indexOf(cleaned)) : 0;
   const { normalized, wasAutoAligned, wasSanitized } = normalizePureMathForRender(cleaned);
 
@@ -821,7 +1149,7 @@ export function renderFormulaSafely(rawLatex: string): RenderOutcome {
     return {
       success: true,
       html,
-      cleanedLatex: cleaned,
+      cleanedLatex: unwrappedCleaned,
       wasStripped: modeDetect.wasOuterStripped,
       strippedDelimiter: modeDetect.outerDelimiter,
       mode: 'pure-math',
@@ -833,10 +1161,10 @@ export function renderFormulaSafely(rawLatex: string): RenderOutcome {
     let activeErr = err;
     let isRelativeCleaned = false;
 
-    // 若自动包装 aligned 失败，尝试原始代码渲染以获取最准确的错误或成功
+    // 若自动包装 aligned 失败，尝试展开 displaylines 后的原始代码渲染以获取最准确的错误或成功
     if (wasAutoAligned) {
       try {
-        const rawHtml = katex.renderToString(cleaned, {
+        const rawHtml = katex.renderToString(unwrappedCleaned, {
           displayMode: true,
           throwOnError: true,
           trust: false,
@@ -850,7 +1178,7 @@ export function renderFormulaSafely(rawLatex: string): RenderOutcome {
         return {
           success: true,
           html: rawHtml,
-          cleanedLatex: cleaned,
+          cleanedLatex: unwrappedCleaned,
           wasStripped: modeDetect.wasOuterStripped,
           strippedDelimiter: modeDetect.outerDelimiter,
           mode: 'pure-math',
@@ -864,7 +1192,7 @@ export function renderFormulaSafely(rawLatex: string): RenderOutcome {
       }
     }
 
-    const posInCode = extractKatexErrorPosition(activeErr, isRelativeCleaned ? cleaned : normalized);
+    const posInCode = extractKatexErrorPosition(activeErr, isRelativeCleaned ? unwrappedCleaned : normalized);
     let absolutePos = 0;
     if (typeof posInCode === 'number') {
       if (isRelativeCleaned || !wasAutoAligned) {

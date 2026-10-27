@@ -13,11 +13,16 @@ import {
   estimateFormulaLineCount,
   renderFormulaSafely,
   sanitizeMathForDisplay,
+  sourceToMathfieldLatex,
+  mathfieldToSourceLatex,
+  formatMultilineLatex,
 } from '../utils/latex';
 import { copyPlainText } from '../utils/exportPng';
 import {
   smartInsertIntoMathfield,
   smartInsertIntoTextarea,
+  insertVisualLineBreak,
+  insertSourceLineBreak,
   appendMatrixRow,
   appendMatrixCol,
   deleteMatrixRow,
@@ -110,6 +115,11 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
       modeRef.current = mode;
     }, [mode]);
 
+    const onChangeRef = useRef(onChange);
+    useEffect(() => {
+      onChangeRef.current = onChange;
+    }, [onChange]);
+
     // 视觉模式 MathLive 相关 Ref
     const mathfieldContainerRef = useRef<HTMLDivElement | null>(null);
     const mathfieldRef = useRef<MathfieldElement | null>(null);
@@ -197,11 +207,11 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
 
         if (newMode === 'visual') {
           onToast(t.modeSwitchedToVisual, 'info');
-          // 切换回视觉模式时，更新 mathfield 内容并聚焦
+          // 切换回视觉模式时，将多行源码转换为视觉模式原生多行格式并聚焦
           setTimeout(() => {
             if (mathfieldRef.current) {
-              const visualSnippet = value.replace(/\\square/g, '\\placeholder{}');
-              const ok = safeSetMathfieldValue(mathfieldRef.current, visualSnippet, { selectionMode: 'item' });
+              const visualSnippet = sourceToMathfieldLatex(value);
+              const ok = safeSetMathfieldValue(mathfieldRef.current, visualSnippet, { selectionMode: 'after' });
               if (!ok) {
                 setVisualLoadFailed(true);
               } else {
@@ -256,16 +266,12 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
       // 在数学模式下保留空格意图为 thin space (\,)，正文模式下保留普通空格
       mf.mathModeSpace = '\\,';
 
-      // 监听用户在视觉框中的实时编辑，仅在视觉模式激活时同步更新 LaTeX 状态
+      // 监听用户在视觉框中的实时编辑，将 MathLive 的 \displaylines{...} 实时转换为纯净标准多行 LaTeX
       const handleInput = () => {
         if (modeRef.current !== 'visual' || visualLoadFailedRef.current) return;
         isMathfieldInternalChangeRef.current = true;
-        const currentLatex = mf.value;
-        // 视觉模式初始化失败或异常时，绝对禁止用空值或旧值覆盖现有权威源码
-        if (!currentLatex && value.trim().length > 0) {
-          return;
-        }
-        onChange(currentLatex);
+        const currentLatex = mathfieldToSourceLatex(mf.value);
+        onChangeRef.current(currentLatex);
         setTimeout(() => {
           isMathfieldInternalChangeRef.current = false;
         }, 0);
@@ -278,6 +284,23 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
             win.mathVirtualKeyboard.hide?.();
             setIsVirtualKeyboardOpen(false);
           }
+          return;
+        }
+
+        // 视觉模式下按 Enter / Shift+Enter / Ctrl+Enter / Alt+Enter 直接执行智能换行
+        if ((e.key === 'Enter' || e.key === 'Return') && !e.isComposing) {
+          const currentMfMode = (mf as unknown as { mode?: string }).mode;
+          if (currentMfMode === 'latex') {
+            return;
+          }
+          e.preventDefault();
+          e.stopPropagation();
+          isMathfieldInternalChangeRef.current = true;
+          const nextLatex = insertVisualLineBreak(mf);
+          onChangeRef.current(nextLatex);
+          setTimeout(() => {
+            isMathfieldInternalChangeRef.current = false;
+          }, 50);
         }
       };
 
@@ -286,17 +309,19 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         const text = e.clipboardData?.getData('text/plain');
         if (!text) return;
         const { normalized, wasModified } = normalizePastedLatex(text);
-        if (wasModified) {
+        const targetText = wasModified ? normalized : text;
+        const visualTarget = sourceToMathfieldLatex(targetText);
+        if (wasModified || visualTarget !== targetText) {
           e.preventDefault();
           e.stopPropagation();
           isMathfieldInternalChangeRef.current = true;
           try {
-            mf.insert(normalized, {
+            mf.insert(visualTarget, {
               focus: true,
               scrollIntoView: true,
               selectionMode: 'after',
             });
-            onChange(mf.value);
+            onChangeRef.current(mathfieldToSourceLatex(mf.value));
           } catch (err) {
             console.warn('Failed to insert normalized paste into mathfield:', err);
           } finally {
@@ -308,7 +333,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
       };
 
       mf.addEventListener('input', handleInput);
-      mf.addEventListener('keydown', handleMfKeyDown);
+      mf.addEventListener('keydown', handleMfKeyDown, { capture: true });
       mf.addEventListener('paste', handleMfPaste);
 
       // 关键：必须先将 mf 挂载到 DOM 容器中，触发 connectedCallback
@@ -316,8 +341,23 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
       container.appendChild(mf);
       mathfieldRef.current = mf;
 
-      // 初始化显示值（使用 MathLive 原生内置的 \mathrm, \mathbf, \mathbb, \mathcal, \operatorname, \boldsymbol，绝不进行递归宏重写）
-      const initialVisual = value.replace(/\\square/g, '\\placeholder{}');
+      // 配置 Enter / Shift+Enter 快捷键绑定为 addRowAfter 换行
+      try {
+        if (Array.isArray(mf.keybindings)) {
+          mf.keybindings = [
+            ...mf.keybindings,
+            { key: '[Enter]', ifMode: 'math', command: 'addRowAfter' },
+            { key: '[Return]', ifMode: 'math', command: 'addRowAfter' },
+            { key: 'shift+[Enter]', ifMode: 'math', command: 'addRowAfter' },
+            { key: 'shift+[Return]', ifMode: 'math', command: 'addRowAfter' },
+          ];
+        }
+      } catch {
+        // ignore
+      }
+
+      // 初始化显示值（使用 sourceToMathfieldLatex 支持多行视觉还原）
+      const initialVisual = sourceToMathfieldLatex(value);
       const ok = safeSetMathfieldValue(mf, initialVisual, { selectionMode: 'after' });
       if (!ok) {
         setVisualLoadFailed(true);
@@ -327,7 +367,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
 
       return () => {
         mf.removeEventListener('input', handleInput);
-        mf.removeEventListener('keydown', handleMfKeyDown);
+        mf.removeEventListener('keydown', handleMfKeyDown, { capture: true });
         mf.removeEventListener('paste', handleMfPaste);
         mf.remove();
         mathfieldRef.current = null;
@@ -339,9 +379,14 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
     // 在源码模式下绝不触碰 mathfield，杜绝多重渲染竞态和快速打字丢字问题
     useEffect(() => {
       if (mode === 'visual' && mathfieldRef.current && !isMathfieldInternalChangeRef.current) {
-        const visualLatex = value.replace(/\\square/g, '\\placeholder{}');
+        const visualLatex = sourceToMathfieldLatex(value);
         try {
-          if (mathfieldRef.current.value !== visualLatex && mathfieldRef.current.value !== value) {
+          const currentMfSource = mathfieldToSourceLatex(mathfieldRef.current.value);
+          if (
+            mathfieldRef.current.value !== visualLatex &&
+            currentMfSource !== value &&
+            currentMfSource.trim() !== value.trim()
+          ) {
             const ok = safeSetMathfieldValue(mathfieldRef.current, visualLatex, { selectionMode: 'after' });
             if (!ok) {
               setVisualLoadFailed(true);
@@ -504,7 +549,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
     const handleRestoreVersion = useCallback(
       (latex: string) => {
         if (mode === 'visual' && mathfieldRef.current) {
-          const visual = latex.replace(/\\square/g, '\\placeholder{}');
+          const visual = sourceToMathfieldLatex(latex).replace(/\\square/g, '\\placeholder{}');
           safeSetMathfieldValue(mathfieldRef.current, visual, { selectionMode: 'item' });
           safeFocusMathfield(mathfieldRef.current);
         } else if (textareaRef.current) {
@@ -526,7 +571,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         setHistoryIndex(nextIdx);
 
         if (mode === 'visual' && mathfieldRef.current) {
-          const visual = targetVal.replace(/\\square/g, '\\placeholder{}');
+          const visual = sourceToMathfieldLatex(targetVal).replace(/\\square/g, '\\placeholder{}');
           safeSetMathfieldValue(mathfieldRef.current, visual, { selectionMode: 'item' });
           safeFocusMathfield(mathfieldRef.current);
         } else if (textareaRef.current) {
@@ -546,7 +591,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         setHistoryIndex(nextIdx);
 
         if (mode === 'visual' && mathfieldRef.current) {
-          const visual = targetVal.replace(/\\square/g, '\\placeholder{}');
+          const visual = sourceToMathfieldLatex(targetVal).replace(/\\square/g, '\\placeholder{}');
           safeSetMathfieldValue(mathfieldRef.current, visual, { selectionMode: 'item' });
           safeFocusMathfield(mathfieldRef.current);
         } else if (textareaRef.current) {
@@ -568,15 +613,14 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
       onToast(t.toastCleared, 'info');
     }, [value, mode, onChange, onToast, t]);
 
-    // 格式化排版
+    // 格式化排版（含多行换行符规范化与缩进整理）
     const handleFormat = useCallback(() => {
-      const formatted = value
-        .split('\n')
-        .map((l) => l.trimEnd())
-        .join('\n')
-        .trim();
+      const formatted = formatMultilineLatex(value);
       if (mode === 'visual' && mathfieldRef.current) {
-        safeSetMathfieldValue(mathfieldRef.current, formatted.replace(/\\square/g, '\\placeholder{}'));
+        safeSetMathfieldValue(
+          mathfieldRef.current,
+          sourceToMathfieldLatex(formatted).replace(/\\square/g, '\\placeholder{}')
+        );
       }
       onChange(formatted);
       onToast(t.toastFormatted, 'success');
@@ -743,8 +787,47 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         return;
       }
 
-      // 空格与 Enter：触发快捷扩展与命令补全
-      if (e.key === ' ' || e.key === 'Enter') {
+      // Shift+Enter / Ctrl+Enter / Cmd+Enter：在源码模式显式插入公式换行符 " \\\n" 并保持缩进
+      if (e.key === 'Enter' && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        const { nextValue, cursorStart, cursorEnd } = insertSourceLineBreak(ta, true);
+        onChange(nextValue);
+        setTimeout(() => {
+          ta.focus();
+          ta.setSelectionRange(cursorStart, cursorEnd);
+        }, 0);
+        return;
+      }
+
+      // 普通 Enter：先检查反斜杠命令补全，否则执行带自动缩进的换行（不拦截普通字母词如 sin/alpha，保证回车始终能换行）
+      if (e.key === 'Enter') {
+        const compRes = checkCommandCompletion({
+          value: ta.value,
+          selectionStart: start,
+          selectionEnd: end,
+        });
+        if (compRes.handled && compRes.nextState) {
+          e.preventDefault();
+          onChange(compRes.nextState.value);
+          const { selectionStart: sStart, selectionEnd: sEnd } = compRes.nextState;
+          setTimeout(() => {
+            ta.setSelectionRange(sStart, sEnd);
+          }, 0);
+          return;
+        }
+
+        e.preventDefault();
+        const { nextValue, cursorStart, cursorEnd } = insertSourceLineBreak(ta, false);
+        onChange(nextValue);
+        setTimeout(() => {
+          ta.focus();
+          ta.setSelectionRange(cursorStart, cursorEnd);
+        }, 0);
+        return;
+      }
+
+      // 空格：触发命令补全与快捷词扩展
+      if (e.key === ' ') {
         // 命令补全 (例如 \frac -> \frac{\placeholder{}}{\placeholder{}})
         const compRes = checkCommandCompletion({
           value: ta.value,
@@ -779,7 +862,10 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
       const { sanitized, wasModified } = sanitizeMathForDisplay(value);
       if (wasModified) {
         if (mode === 'visual' && mathfieldRef.current) {
-          safeSetMathfieldValue(mathfieldRef.current, sanitized.replace(/\\square/g, '\\placeholder{}'));
+          safeSetMathfieldValue(
+            mathfieldRef.current,
+            sourceToMathfieldLatex(sanitized).replace(/\\square/g, '\\placeholder{}')
+          );
         }
         onChange(sanitized);
         onToast(t.toastNormalizedSuccess, 'success');
@@ -792,7 +878,10 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
     const handleAppendRow = useCallback(() => {
       const nextVal = appendMatrixRow(value);
       if (mode === 'visual' && mathfieldRef.current) {
-        safeSetMathfieldValue(mathfieldRef.current, nextVal.replace(/\\square/g, '\\placeholder{}'));
+        safeSetMathfieldValue(
+          mathfieldRef.current,
+          sourceToMathfieldLatex(nextVal).replace(/\\square/g, '\\placeholder{}')
+        );
       }
       onChange(nextVal);
       onToast(t.matrixAddRow, 'info');
@@ -802,7 +891,10 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
     const handleAppendColumn = useCallback(() => {
       const nextVal = appendMatrixCol(value);
       if (mode === 'visual' && mathfieldRef.current) {
-        safeSetMathfieldValue(mathfieldRef.current, nextVal.replace(/\\square/g, '\\placeholder{}'));
+        safeSetMathfieldValue(
+          mathfieldRef.current,
+          sourceToMathfieldLatex(nextVal).replace(/\\square/g, '\\placeholder{}')
+        );
       }
       onChange(nextVal);
       onToast(t.matrixAddCol, 'info');
@@ -812,7 +904,10 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
     const handleDeleteRow = useCallback(() => {
       const nextVal = deleteMatrixRow(value);
       if (mode === 'visual' && mathfieldRef.current) {
-        safeSetMathfieldValue(mathfieldRef.current, nextVal.replace(/\\square/g, '\\placeholder{}'));
+        safeSetMathfieldValue(
+          mathfieldRef.current,
+          sourceToMathfieldLatex(nextVal).replace(/\\square/g, '\\placeholder{}')
+        );
       }
       onChange(nextVal);
     }, [value, mode, onChange]);
@@ -821,18 +916,41 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
     const handleDeleteColumn = useCallback(() => {
       const nextVal = deleteMatrixCol(value);
       if (mode === 'visual' && mathfieldRef.current) {
-        safeSetMathfieldValue(mathfieldRef.current, nextVal.replace(/\\square/g, '\\placeholder{}'));
+        safeSetMathfieldValue(
+          mathfieldRef.current,
+          sourceToMathfieldLatex(nextVal).replace(/\\square/g, '\\placeholder{}')
+        );
       }
       onChange(nextVal);
     }, [value, mode, onChange]);
 
-    // 手动格式与明确间隔操作 (\text{}, \mathrm{}, \operatorname{}, \,, \cdot)
+    // 手动格式、明确间隔与换行操作 (\text{}, \mathrm{}, \operatorname{}, \,, \cdot, \\)
     const handleInsertFormat = useCallback(
-      (formatType: 'text' | 'mathrm' | 'operatorname' | 'thinspace' | 'cdot') => {
+      (formatType: 'text' | 'mathrm' | 'operatorname' | 'thinspace' | 'cdot' | 'linebreak') => {
+        if (formatType === 'linebreak') {
+          if (mode === 'visual' && mathfieldRef.current) {
+            isMathfieldInternalChangeRef.current = true;
+            const nextLatex = insertVisualLineBreak(mathfieldRef.current);
+            onChange(nextLatex);
+            setTimeout(() => {
+              isMathfieldInternalChangeRef.current = false;
+            }, 150);
+          } else if (textareaRef.current) {
+            const ta = textareaRef.current;
+            const { nextValue, cursorStart, cursorEnd } = insertSourceLineBreak(ta, true);
+            onChange(nextValue);
+            setTimeout(() => {
+              ta.focus();
+              ta.setSelectionRange(cursorStart, cursorEnd);
+            }, 0);
+          }
+          return;
+        }
+
         if (formatType === 'thinspace') {
           if (mode === 'visual' && mathfieldRef.current) {
             mathfieldRef.current.insert('\\,', { focus: true, scrollIntoView: true, selectionMode: 'after' });
-            onChange(mathfieldRef.current.value);
+            onChange(mathfieldToSourceLatex(mathfieldRef.current.value));
           } else if (textareaRef.current) {
             const ta = textareaRef.current;
             const start = ta.selectionStart;
@@ -850,7 +968,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         if (formatType === 'cdot') {
           if (mode === 'visual' && mathfieldRef.current) {
             mathfieldRef.current.insert('\\cdot', { focus: true, scrollIntoView: true, selectionMode: 'after' });
-            onChange(mathfieldRef.current.value);
+            onChange(mathfieldToSourceLatex(mathfieldRef.current.value));
           } else if (textareaRef.current) {
             const ta = textareaRef.current;
             const start = ta.selectionStart;
@@ -869,7 +987,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         if (mode === 'visual' && mathfieldRef.current) {
           const mf = mathfieldRef.current;
           mf.insert(`\\${macroName}{#@#?}`, { focus: true, scrollIntoView: true, selectionMode: 'placeholder' });
-          onChange(mf.value);
+          onChange(mathfieldToSourceLatex(mf.value));
         } else if (textareaRef.current) {
           const ta = textareaRef.current;
           const start = ta.selectionStart;
@@ -924,7 +1042,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         },
         setValue: (val: string) => {
           if (mathfieldRef.current) {
-            const visual = val.replace(/\\square/g, '\\placeholder{}');
+            const visual = sourceToMathfieldLatex(val).replace(/\\square/g, '\\placeholder{}');
             safeSetMathfieldValue(mathfieldRef.current, visual, { selectionMode: 'after' });
           }
           onChange(val);
@@ -1210,6 +1328,16 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
               >
                 \cdot
               </button>
+              <button
+                type="button"
+                className="px-1.5 py-1 text-xs rounded hover:bg-white dark:hover:bg-slate-700 font-mono font-semibold text-blue-600 dark:text-blue-400 cursor-pointer transition-colors flex items-center gap-0.5"
+                onClick={() => handleInsertFormat('linebreak')}
+                title={isZh ? '公式换行 (Enter / Shift+Enter / \\\\)' : 'Line Break (Enter / Shift+Enter / \\\\)'}
+                aria-label={isZh ? '公式换行' : 'Line Break'}
+              >
+                <span>↵</span>
+                <span>{isZh ? '换行' : 'Break'}</span>
+              </button>
             </div>
 
             {/* 中文全角标点纠正与汉字规范化按钮 */}
@@ -1403,8 +1531,8 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
                 <span>
                   <strong>{isZh ? '视觉模式' : 'Visual Mode'}</strong>：
                   {isZh
-                    ? '支持键盘方向键 ← → ↑ ↓ 在分子分母间游走，Tab 切换占位框'
-                    : 'Use arrow keys ← → ↑ ↓ to navigate fractions & radicals, Tab to jump placeholders'}
+                    ? '按 Enter 键快速换行，方向键 ← → ↑ ↓ 在分子分母间游走，Tab 切换占位框'
+                    : 'Press Enter for a new line, arrow keys ← → ↑ ↓ to navigate, Tab to jump placeholders'}
                 </span>
               </>
             ) : (
@@ -1416,7 +1544,9 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
                 </svg>
                 <span>
                   <strong>{isZh ? 'LaTeX 源码模式' : 'LaTeX Source Mode'}</strong>：
-                  {isZh ? '按 Tab 键跳至下一个 \\square 占位符' : 'Press Tab to jump to the next \\square placeholder'}
+                  {isZh
+                    ? '按 Enter 换行 (或 Shift+Enter 插入 \\\\)，按 Tab 跳至下一个 \\square 占位符'
+                    : 'Press Enter for new line (or Shift+Enter for \\\\), Tab to jump \\square'}
                 </span>
               </>
             )}
