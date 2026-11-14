@@ -561,7 +561,12 @@ export function sourceToMathfieldLatex(latex: string): string {
  */
 export function mathfieldToSourceLatex(mfLatex: string): string {
   if (!mfLatex) return '';
-  return unwrapDisplaylines(mfLatex);
+  return unwrapDisplaylines(mfLatex)
+    .replace(/\\differentialD(?![a-zA-Z])/g, '\\mathrm{d}')
+    .replace(/\\imaginaryI(?![a-zA-Z])/g, '\\mathrm{i}')
+    .replace(/\\imaginaryJ(?![a-zA-Z])/g, '\\mathrm{j}')
+    .replace(/\\exponentialE(?![a-zA-Z])/g, '\\mathrm{e}')
+    .replace(/\\doubleprime(?![a-zA-Z])/g, '\\prime\\prime');
 }
 
 /**
@@ -907,6 +912,11 @@ export function renderMixedMarkdownMath(content: string): {
         macros: {
           '\\placeholder': '\\Box',
           '\\square': '\\Box',
+          '\\differentialD': '\\mathrm{d}',
+          '\\imaginaryI': '\\mathrm{i}',
+          '\\imaginaryJ': '\\mathrm{j}',
+          '\\exponentialE': '\\mathrm{e}',
+          '\\doubleprime': '\\prime\\prime',
         },
       });
 

@@ -33,6 +33,12 @@ import { handleBracketAutoPair, checkCommandCompletion } from '../utils/sourceEd
 import { tryExpandShortcut } from '../utils/shortcuts';
 import { normalizePastedLatex } from '../utils/pasteNormalize';
 import { wrapWithDelimiter, type DelimiterMode } from '../utils/delimiter';
+import {
+  injectSymbolabShadowStyles,
+  updateSymbolabActiveSlot,
+  clearSymbolabActiveSlot,
+  configureSymbolabMathfieldBehavior,
+} from '../utils/symbolabVisualStyle';
 import type { RenderStatus } from '../types/formula';
 import { useI18n } from '../i18n/context';
 
@@ -75,7 +81,7 @@ function safeSetMathfieldValue(
   if (!mf) return false;
   try {
     if (typeof mf.setValue === 'function') {
-      mf.setValue(val, options);
+      mf.setValue(val, { silenceNotifications: true, ...options });
     } else {
       mf.value = val;
     }
@@ -90,6 +96,16 @@ function safeFocusMathfield(mf: MathfieldElement | null) {
   if (!mf) return;
   try {
     mf.focus?.();
+    // Ensure MathLive's internal keyboardDelegate (.ML__keyboard-sink) receives focus immediately
+    // so keyboard input works without waiting for MathLive's 60ms setTimeout race window.
+    const internal = (mf as unknown as {
+      _mathfield?: {
+        keyboardDelegate?: { focus?: () => void; hasFocus?: () => boolean };
+      };
+    })._mathfield;
+    if (internal?.keyboardDelegate && !internal.keyboardDelegate.hasFocus?.()) {
+      internal.keyboardDelegate.focus?.();
+    }
   } catch {
     // ignore
   }
@@ -207,19 +223,29 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
 
         if (newMode === 'visual') {
           onToast(t.modeSwitchedToVisual, 'info');
-          // 切换回视觉模式时，将多行源码转换为视觉模式原生多行格式并聚焦
+          // 切换回视觉模式时，确保将最新源码载入视觉框并立即激活键盘输入焦点
           setTimeout(() => {
-            if (mathfieldRef.current) {
+            const mf = mathfieldRef.current;
+            if (mf) {
               const visualSnippet = sourceToMathfieldLatex(value);
-              const ok = safeSetMathfieldValue(mathfieldRef.current, visualSnippet, { selectionMode: 'after' });
+              const currentMfSource = mathfieldToSourceLatex(mf.value);
+              let ok = true;
+              if (
+                mf.value !== visualSnippet &&
+                currentMfSource !== value &&
+                currentMfSource.trim() !== value.trim()
+              ) {
+                ok = safeSetMathfieldValue(mf, visualSnippet, { selectionMode: 'after' });
+              }
               if (!ok) {
                 setVisualLoadFailed(true);
               } else {
                 setVisualLoadFailed(false);
-                safeFocusMathfield(mathfieldRef.current);
+                safeFocusMathfield(mf);
+                updateSymbolabActiveSlot(mf);
               }
             }
-          }, 50);
+          }, 30);
         } else {
           setVisualLoadFailed(false);
           onToast(t.modeSwitchedToSource, 'info');
@@ -287,6 +313,37 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
           return;
         }
 
+        // 当光标位于非空上标末尾（例如手动定位到 r^{2|}）且用户输入 '=' 时，自动跳出上标回到主基线输入 r^2=...
+        if (e.key === '=' && !e.isComposing && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          try {
+            const internal = (mf as unknown as {
+              _mathfield?: {
+                model?: {
+                  selectionIsCollapsed?: boolean;
+                  position?: number;
+                  at?: (pos: number) => {
+                    parentBranch?: string;
+                    type?: string;
+                    parent?: { branch?: (name: string) => unknown[] | undefined };
+                  } | undefined;
+                };
+              };
+            })._mathfield;
+            const model = internal?.model;
+            if (model?.selectionIsCollapsed && typeof model.position === 'number' && typeof model.at === 'function') {
+              const atom = model.at(model.position);
+              if (atom && atom.parentBranch === 'superscript' && atom.type !== 'first' && atom.type !== 'placeholder') {
+                const branchAtoms = atom.parent?.branch?.('superscript');
+                if (Array.isArray(branchAtoms) && branchAtoms[branchAtoms.length - 1] === atom) {
+                  mf.executeCommand('moveAfterParent');
+                }
+              }
+            }
+          } catch {
+            // ignore
+          }
+        }
+
         // 视觉模式下按 Enter / Shift+Enter / Ctrl+Enter / Alt+Enter 直接执行智能换行
         if ((e.key === 'Enter' || e.key === 'Return') && !e.isComposing) {
           const currentMfMode = (mf as unknown as { mode?: string }).mode;
@@ -341,6 +398,30 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
       container.appendChild(mf);
       mathfieldRef.current = mf;
 
+      // 注入 Symbolab (zs.symbolab.com/solver) 风格 Shadow DOM 样式与交互行为 (smartSuperscript = false 等)
+      configureSymbolabMathfieldBehavior(mf);
+      injectSymbolabShadowStyles(mf);
+
+      let rafId = 0;
+      const scheduleSlotHighlightUpdate = () => {
+        if (rafId) cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(() => {
+          updateSymbolabActiveSlot(mf);
+        });
+      };
+
+      const handleMfBlur = () => {
+        if (rafId) cancelAnimationFrame(rafId);
+        clearSymbolabActiveSlot(mf);
+      };
+
+      mf.addEventListener('selection-change', scheduleSlotHighlightUpdate);
+      mf.addEventListener('input', scheduleSlotHighlightUpdate);
+      mf.addEventListener('focus', scheduleSlotHighlightUpdate);
+      mf.addEventListener('keyup', scheduleSlotHighlightUpdate);
+      mf.addEventListener('pointerup', scheduleSlotHighlightUpdate);
+      mf.addEventListener('blur', handleMfBlur);
+
       // 配置 Enter / Shift+Enter 快捷键绑定为 addRowAfter 换行
       try {
         if (Array.isArray(mf.keybindings)) {
@@ -363,12 +444,20 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         setVisualLoadFailed(true);
       } else {
         setVisualLoadFailed(false);
+        scheduleSlotHighlightUpdate();
       }
 
       return () => {
+        if (rafId) cancelAnimationFrame(rafId);
         mf.removeEventListener('input', handleInput);
         mf.removeEventListener('keydown', handleMfKeyDown, { capture: true });
         mf.removeEventListener('paste', handleMfPaste);
+        mf.removeEventListener('selection-change', scheduleSlotHighlightUpdate);
+        mf.removeEventListener('input', scheduleSlotHighlightUpdate);
+        mf.removeEventListener('focus', scheduleSlotHighlightUpdate);
+        mf.removeEventListener('keyup', scheduleSlotHighlightUpdate);
+        mf.removeEventListener('pointerup', scheduleSlotHighlightUpdate);
+        mf.removeEventListener('blur', handleMfBlur);
         mf.remove();
         mathfieldRef.current = null;
       };
@@ -1430,10 +1519,29 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
             ref={mathfieldContainerRef}
             style={{
               width: '100%',
-              minHeight: visualLoadFailed ? '0px' : '160px',
+              minHeight: visualLoadFailed ? '0px' : '112px',
               display: visualLoadFailed ? 'none' : 'block',
             }}
           />
+          {!visualLoadFailed && value.trim() ? (
+            <div className="symbolab-inline-actions">
+              <button
+                type="button"
+                className="symbolab-clear-inline-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleClear();
+                }}
+                title={isZh ? '清空公式 (Clear)' : 'Clear formula'}
+                aria-label={isZh ? '清空公式' : 'Clear formula'}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+          ) : null}
         </div>
 
         {/* 模式二：【LaTeX 源码模式】（行号 + 语法高亮底层 + 透明文本域） */}

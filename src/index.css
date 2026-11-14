@@ -319,11 +319,180 @@ body {
 }
 
 /* ==========================================================================
-   SECTION 1: Palette
+   SECTION 1: Palette & Symbolab 2x12 Quick Pad
    ========================================================================== */
 .palette-panel {
   display: flex;
   flex-direction: column;
+}
+
+.symbolab-quickpad-section {
+  background: var(--bg-surface);
+  padding: 0.7rem 1.1rem 0.45rem;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.symbolab-quickpad-topbar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.symbolab-quickpad-brand-hint {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.01em;
+}
+
+.symbolab-fullkb-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.symbolab-fullkb-label {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.symbolab-switch-track {
+  position: relative;
+  width: 38px;
+  height: 20px;
+  border-radius: 9999px;
+  background: #94a3b8;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+}
+
+.symbolab-switch-track.checked {
+  background: #0875e1;
+}
+
+.symbolab-switch-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transform: translateX(0);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.symbolab-switch-track.checked .symbolab-switch-thumb {
+  transform: translateX(18px);
+}
+
+.symbolab-quickpad-well {
+  width: 100%;
+  max-width: 820px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 0.5rem 0.55rem;
+  box-sizing: border-box;
+}
+
+.symbolab-quickpad-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(44px, 1fr));
+  gap: 5px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.symbolab-quickpad-grid::-webkit-scrollbar {
+  display: none;
+}
+
+.symbolab-quick-btn {
+  height: 40px;
+  min-width: 44px;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0 0.2rem;
+  transition: all 0.14s ease;
+  user-select: none;
+  overflow: hidden;
+}
+
+.symbolab-quick-btn:hover {
+  background: var(--primary-subtle);
+  border-color: #0875e1;
+  color: #0875e1;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 5px rgba(8, 117, 225, 0.12);
+}
+
+[data-theme="dark"] .symbolab-quick-btn:hover {
+  color: #60a5fa;
+  border-color: #3b82f6;
+}
+
+.symbolab-quick-btn:active {
+  transform: translateY(0);
+}
+
+.symbolab-quick-preview {
+  font-size: 0.96rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.symbolab-quick-btn.is-matrix-btn .symbolab-quick-preview {
+  transform: scale(0.56);
+  transform-origin: center center;
+}
+
+.symbolab-quickpad-chevron-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin-top: -2px;
+}
+
+.symbolab-chevron-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 9999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: #e11d48;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.symbolab-chevron-btn:hover {
+  transform: scale(1.08);
+  box-shadow: 0 2px 6px rgba(225, 29, 72, 0.2);
 }
 
 .palette-header-bar {
@@ -534,29 +703,55 @@ body {
 }
 
 /* ==========================================================================
-   MathLive Visual WYSIWYG Mathfield Styling (Symbolab Mode)
+   MathLive Visual WYSIWYG Mathfield Styling (Symbolab Solver Mode)
    ========================================================================== */
 math-field {
   display: block;
   width: 100%;
-  min-height: 160px;
-  padding: 1.5rem 1.75rem;
-  background: var(--bg-surface);
-  color: var(--text-main);
-  font-size: 1.45rem;
+  min-height: 112px;
+  padding: 0;
+  background: #ffffff;
+  color: #0c2340;
+  font-size: 1.5rem;
   outline: none;
   border: none;
   cursor: text;
   box-sizing: border-box;
-  --primary: #2563eb;
-  --caret-color: #2563eb;
-  --selection-background-color: rgba(37, 99, 235, 0.22);
+  --primary: #0875e1;
+  --caret-color: #1e293b;
+  --contains-highlight-background-color: transparent;
+  --contains-highlight-color: currentColor;
+  --text-highlight-background-color: rgba(8, 117, 225, 0.08);
+  --selection-background-color: #0875e1;
+  --selection-color: #ffffff;
+  --symbolab-selection-bg: #0875e1;
+  --symbolab-selection-color: #ffffff;
+  --symbolab-caret-color: #1e293b;
+  --symbolab-slot-bg: #ffffff;
+  --symbolab-slot-border: #29a3ff;
+  --symbolab-slot-glow: rgba(0, 149, 255, 0.62);
+  --symbolab-slot-glow-inner: rgba(0, 149, 255, 0.88);
+  --symbolab-placeholder-border: #94a3b8;
+  --symbolab-placeholder-bg: rgba(148, 163, 184, 0.13);
 }
 
 [data-theme="dark"] math-field {
-  --primary: #3b82f6;
-  --caret-color: #60a5fa;
-  --selection-background-color: rgba(59, 130, 246, 0.35);
+  --primary: #0875e1;
+  --caret-color: #f8fafc;
+  --contains-highlight-background-color: transparent;
+  --contains-highlight-color: currentColor;
+  --text-highlight-background-color: rgba(8, 117, 225, 0.15);
+  --selection-background-color: #0875e1;
+  --selection-color: #ffffff;
+  --symbolab-selection-bg: #0875e1;
+  --symbolab-selection-color: #ffffff;
+  --symbolab-caret-color: #f8fafc;
+  --symbolab-slot-bg: #0f172a;
+  --symbolab-slot-border: #38bdf8;
+  --symbolab-slot-glow: rgba(56, 189, 248, 0.65);
+  --symbolab-slot-glow-inner: rgba(56, 189, 248, 0.9);
+  --symbolab-placeholder-border: #64748b;
+  --symbolab-placeholder-bg: rgba(148, 163, 184, 0.16);
   background: var(--bg-surface);
   color: #f8fafc;
 }
@@ -565,19 +760,60 @@ math-field:focus-within {
   outline: none;
 }
 
-/* Hide mathlive default bottom virtual keyboard toggle button on desktop */
-math-field::part(virtual-keyboard-toggle) {
-  display: none;
+/* Hide MathLive default built-in virtual keyboard and hamburger menu toggles */
+math-field::part(virtual-keyboard-toggle),
+math-field::part(menu-toggle) {
+  display: none !important;
 }
 
 .visual-editor-container {
   position: relative;
   width: 100%;
-  min-height: 160px;
-  background: var(--bg-surface);
+  min-height: 112px;
+  background: #ffffff;
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
+  transition: box-shadow 0.18s ease, background-color 0.2s ease;
+}
+
+[data-theme="dark"] .visual-editor-container {
+  background: var(--bg-surface);
+}
+
+.visual-editor-container:focus-within {
+  box-shadow: inset 0 0 0 1.5px rgba(8, 117, 225, 0.55);
+}
+
+/* Symbolab 右侧输入框内联快捷清除与公式示例按钮组 */
+.symbolab-inline-actions {
+  position: absolute;
+  right: 0.85rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  z-index: 10;
+}
+
+.symbolab-clear-inline-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-light);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.symbolab-clear-inline-btn:hover {
+  background: rgba(148, 163, 184, 0.16);
+  color: var(--text-main);
 }
 
 .editor-panel {

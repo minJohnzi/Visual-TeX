@@ -15,6 +15,231 @@ interface SymbolPaletteProps {
 
 const STORAGE_PALETTE_COLLAPSED_KEY = 'latex_formula_palette_collapsed';
 
+/**
+ * 对齐 Symbolab (https://zs.symbolab.com/solver) 顶部双行 2×12 核心快捷输入面板
+ */
+export const SYMBOLAB_QUICK_PAD_ITEMS: PaletteItem[] = [
+  // 第一行 (12 个)
+  {
+    label: '平方',
+    labelEn: 'Square',
+    tooltip: '平方 x²',
+    tooltipEn: 'Square x²',
+    latex: '^{2}',
+    display: 'x^{2}',
+    mathliveSnippet: '^{2}',
+  },
+  {
+    label: '次幂',
+    labelEn: 'Power',
+    tooltip: '指数/上标 x^□',
+    tooltipEn: 'Exponent x^□',
+    latex: '^{\\square}',
+    display: 'x^{\\Box}',
+    mathliveSnippet: '^{#?}',
+  },
+  {
+    label: '对数',
+    labelEn: 'Log',
+    tooltip: '任意底对数 log_□',
+    tooltipEn: 'Logarithm log_□',
+    latex: '\\log_{\\square}\\left(\\square\\right)',
+    display: '\\log_{\\Box}',
+    mathliveSnippet: '\\log_{#?}\\left(#?\\right)',
+  },
+  {
+    label: '平方根',
+    labelEn: 'Sqrt',
+    tooltip: '算术平方根 √□',
+    tooltipEn: 'Square Root √□',
+    latex: '\\sqrt{\\square}',
+    display: '\\sqrt{\\Box}',
+    mathliveSnippet: '\\sqrt{#?}',
+  },
+  {
+    label: 'n次根',
+    labelEn: 'Nth Root',
+    tooltip: 'n次根式 ⁿ√□',
+    tooltipEn: 'Nth Root ⁿ√□',
+    latex: '\\sqrt[\\square]{\\square}',
+    display: '\\sqrt[\\Box]{\\Box}',
+    mathliveSnippet: '\\sqrt[#?]{#?}',
+  },
+  {
+    label: '小于等于',
+    labelEn: 'Less/Equal',
+    tooltip: '小于或等于 ≤',
+    tooltipEn: 'Less than or equal ≤',
+    latex: '\\le ',
+    display: '\\le',
+    mathliveSnippet: '\\le',
+  },
+  {
+    label: '大于等于',
+    labelEn: 'Greater/Equal',
+    tooltip: '大于或等于 ≥',
+    tooltipEn: 'Greater than or equal ≥',
+    latex: '\\ge ',
+    display: '\\ge',
+    mathliveSnippet: '\\ge',
+  },
+  {
+    label: '分式',
+    labelEn: 'Fraction',
+    tooltip: '标准分式 □/□',
+    tooltipEn: 'Fraction □/□',
+    latex: '\\frac{\\square}{\\square}',
+    display: '\\frac{\\Box}{\\Box}',
+    mathliveSnippet: '\\frac{#?}{#?}',
+  },
+  {
+    label: '点乘',
+    labelEn: 'Multiply Dot',
+    tooltip: '中心乘点 ·',
+    tooltipEn: 'Center Dot ·',
+    latex: '\\cdot ',
+    display: '\\cdot',
+    mathliveSnippet: '\\cdot',
+  },
+  {
+    label: '除号',
+    labelEn: 'Divide',
+    tooltip: '除法算子 ÷',
+    tooltipEn: 'Division ÷',
+    latex: '\\div ',
+    display: '\\div',
+    mathliveSnippet: '\\div',
+  },
+  {
+    label: '角度',
+    labelEn: 'Degree',
+    tooltip: '角度符号 x°',
+    tooltipEn: 'Degree x°',
+    latex: '^{\\circ}',
+    display: 'x^{\\circ}',
+    mathliveSnippet: '^{\\circ}',
+  },
+  {
+    label: '圆周率',
+    labelEn: 'Pi',
+    tooltip: '圆周率 π',
+    tooltipEn: 'Pi π',
+    latex: '\\pi ',
+    display: '\\pi',
+    mathliveSnippet: '\\pi',
+  },
+  // 第二行 (12 个)
+  {
+    label: '求导撇',
+    labelEn: 'Prime',
+    tooltip: '一阶导数 (□)\'',
+    tooltipEn: 'Derivative Prime (□)\'',
+    latex: '\\left(\\square\\right)^{\\prime}',
+    display: '(\\Box)^{\\prime}',
+    mathliveSnippet: '\\left(#?\\right)^{\\prime}',
+  },
+  {
+    label: '全导数',
+    labelEn: 'd/dx',
+    tooltip: '微分算子 d/dx',
+    tooltipEn: 'Derivative d/dx',
+    latex: '\\frac{\\mathrm{d}}{\\mathrm{d}x}\\left(\\square\\right)',
+    display: '\\frac{d}{dx}',
+    mathliveSnippet: '\\frac{\\mathrm{d}}{\\mathrm{d}x}\\left(#?\\right)',
+  },
+  {
+    label: '偏导数',
+    labelEn: '∂/∂x',
+    tooltip: '偏微分算子 ∂/∂x',
+    tooltipEn: 'Partial Derivative ∂/∂x',
+    latex: '\\frac{\\partial}{\\partial x}\\left(\\square\\right)',
+    display: '\\frac{\\partial}{\\partial x}',
+    mathliveSnippet: '\\frac{\\partial}{\\partial x}\\left(#?\\right)',
+  },
+  {
+    label: '不定积分',
+    labelEn: 'Integral',
+    tooltip: '不定积分 ∫',
+    tooltipEn: 'Indefinite Integral ∫',
+    latex: '\\int \\square \\, \\mathrm{d}x',
+    display: '\\int',
+    mathliveSnippet: '\\int #? \\, \\mathrm{d}x',
+  },
+  {
+    label: '定积分',
+    labelEn: 'Def Integral',
+    tooltip: '定积分 ∫_□^□',
+    tooltipEn: 'Definite Integral ∫_□^□',
+    latex: '\\int_{\\square}^{\\square} \\square \\, \\mathrm{d}x',
+    display: '\\int_{\\Box}^{\\Box}',
+    mathliveSnippet: '\\int_{#?}^{#?} #? \\, \\mathrm{d}x',
+  },
+  {
+    label: '极限',
+    labelEn: 'Limit',
+    tooltip: '极限 lim',
+    tooltipEn: 'Limit lim',
+    latex: '\\lim_{x \\to \\square}\\left(\\square\\right)',
+    display: '\\lim',
+    mathliveSnippet: '\\lim_{x \\to #?}\\left(#?\\right)',
+  },
+  {
+    label: '求和',
+    labelEn: 'Sum',
+    tooltip: '级数求和 ∑',
+    tooltipEn: 'Summation ∑',
+    latex: '\\sum_{k=0}^{n} \\square',
+    display: '\\sum',
+    mathliveSnippet: '\\sum_{#?}^{#?} #?',
+  },
+  {
+    label: '无穷大',
+    labelEn: 'Infinity',
+    tooltip: '无穷大 ∞',
+    tooltipEn: 'Infinity ∞',
+    latex: '\\infty ',
+    display: '\\infty',
+    mathliveSnippet: '\\infty',
+  },
+  {
+    label: 'Theta',
+    labelEn: 'Theta',
+    tooltip: '希腊字母 θ',
+    tooltipEn: 'Greek Theta θ',
+    latex: '\\theta ',
+    display: '\\theta',
+    mathliveSnippet: '\\theta',
+  },
+  {
+    label: '复合函数',
+    labelEn: 'Composition',
+    tooltip: '复合函数 (f∘g)',
+    tooltipEn: 'Function Composition (f∘g)',
+    latex: '\\left(f \\circ g\\right)\\left(\\square\\right)',
+    display: '(f\\circ g)',
+    mathliveSnippet: '\\left(f \\circ g\\right)\\left(#?\\right)',
+  },
+  {
+    label: '函数',
+    labelEn: 'f(x)',
+    tooltip: '函数 f(x)',
+    tooltipEn: 'Function f(x)',
+    latex: 'f\\left(x\\right)',
+    display: 'f(x)',
+    mathliveSnippet: 'f\\left(#?\\right)',
+  },
+  {
+    label: '矩阵',
+    labelEn: 'Matrix',
+    tooltip: '2×2 矩阵',
+    tooltipEn: '2×2 Matrix',
+    latex: '\\begin{pmatrix} \\square & \\square \\\\ \\square & \\square \\end{pmatrix}',
+    display: '\\begin{pmatrix} \\Box & \\Box \\\\ \\Box & \\Box \\end{pmatrix}',
+    mathliveSnippet: '\\begin{pmatrix} #? & #? \\\\ #? & #? \\end{pmatrix}',
+    isMatrix: true,
+  },
+];
+
 export const SymbolPalette: React.FC<SymbolPaletteProps> = ({
   onSelectItem,
   onAppendRow,
@@ -94,8 +319,82 @@ export const SymbolPalette: React.FC<SymbolPaletteProps> = ({
   };
 
   return (
-    <section className="card-panel palette-panel" aria-label={t.paletteTitle}>
-      {/* 选项卡导航与一键折叠/展开栏 */}
+    <section className="card-panel palette-panel symbolab-palette-card" aria-label={t.paletteTitle}>
+      {/* Symbolab 风格顶部核心快捷区：右上角“全键盘”开关 + 2×12 高频快捷软键盘 + 底部展开箭头 */}
+      <div className="symbolab-quickpad-section">
+        <div className="symbolab-quickpad-topbar">
+          <span className="symbolab-quickpad-brand-hint">
+            {isZh ? 'Symbolab 快捷公式软键盘' : 'Symbolab Quick Math Pad'}
+          </span>
+          <label
+            className="symbolab-fullkb-switch"
+            title={t.paletteToggleTooltip}
+            onMouseDown={(e) => e.preventDefault()}
+          >
+            <span className="symbolab-fullkb-label">
+              {isZh ? '全键盘' : 'Full Keyboard'}
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={!isCollapsed}
+              className={`symbolab-switch-track ${!isCollapsed ? 'checked' : ''}`}
+              onClick={toggleCollapse}
+              onMouseDown={(e) => e.preventDefault()}
+            >
+              <span className="symbolab-switch-thumb" />
+            </button>
+          </label>
+        </div>
+
+        <div className="symbolab-quickpad-well">
+          <div className="symbolab-quickpad-grid">
+            {SYMBOLAB_QUICK_PAD_ITEMS.map((item, idx) => {
+              const previewHtml = renderSymbolPreviewHtml(
+                item.display || item.latex.replace(/\\square/g, '\\Box')
+              );
+              const tooltipDesc = isZh
+                ? item.tooltip || item.label
+                : item.tooltipEn || item.labelEn || item.label;
+              return (
+                <button
+                  key={`symbolab-quick-${idx}`}
+                  type="button"
+                  className={`symbolab-quick-btn ${item.isMatrix ? 'is-matrix-btn' : ''}`}
+                  title={`${tooltipDesc} (${t.clickToInsert})`}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onSelectItem(item);
+                  }}
+                >
+                  <span
+                    className={`symbolab-quick-preview ${item.isMatrix ? 'symbol-preview-matrix' : ''}`}
+                    dangerouslySetInnerHTML={{ __html: previewHtml }}
+                  />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="symbolab-quickpad-chevron-row">
+          <button
+            type="button"
+            className={`symbolab-chevron-btn ${!isCollapsed ? 'expanded' : ''}`}
+            onClick={toggleCollapse}
+            onMouseDown={(e) => e.preventDefault()}
+            title={isCollapsed ? t.expandPalette : t.collapsePalette}
+            aria-expanded={!isCollapsed}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+              {isCollapsed ? <path d="m6 9 6 6 6-6" /> : <path d="m18 15-6-6-6 6" />}
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* 选项卡导航与一键折叠/展开栏（当开启“全键盘”时显示完整分类标签栏） */}
       <div className="palette-header-bar">
         {/* 6 大 Tab 选项卡导航 (支持移动端自然横向手势滑动) */}
         <div className="palette-tabs-nav" role="tablist">
