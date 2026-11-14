@@ -1,335 +1,377 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Copy, Download, ImageDown, X } from 'lucide-react';
+import { copyTextToClipboard } from '../core/export/clipboard';
 import {
-  exportPng,
-  exportSvg,
-  copyMathMl,
-  type CanvasBgMode,
-  isColorLight,
-} from '../utils/exportPng';
-import { renderFormulaSafely } from '../utils/latex';
+  deliverPngBlob,
+  renderDomElementToPngBlob,
+  triggerTextDownload,
+} from '../core/export/domPng';
+import {
+  compileFormulaSvg,
+  renderSvgToPngBlob,
+  resolveExportTextColor,
+  styleStandaloneSvg,
+} from '../core/export/mathjaxClient';
+import { CanvasBgMode, ExportPaddingMode, ExportSvgResult } from '../core/types';
 import { useI18n } from '../i18n/context';
+import { useAppStore } from '../store/useAppStore';
 
-interface ExportModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  latex: string;
-  currentBgMode: CanvasBgMode;
-  currentColor: string;
-  onToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
-}
+type ExportFormat = 'png' | 'svg' | 'mathml';
+type ScaleOption = 1 | 2 | 3 | 4 | 5;
 
-export const ExportModal: React.FC<ExportModalProps> = ({
-  isOpen,
-  onClose,
-  latex,
-  currentBgMode,
-  currentColor,
-  onToast,
-}) => {
+const INK_OPTIONS = ['default', '#000000', '#ffffff', '#1e3a8a'];
+const SCALE_OPTIONS: ScaleOption[] = [1, 2, 3, 4, 5];
+const PADDING_OPTIONS: Array<{
+  mode: ExportPaddingMode;
+  labelKey: 'paddingCompact' | 'paddingNormal' | 'paddingRelaxed';
+}> = [
+  { mode: 'compact', labelKey: 'paddingCompact' },
+  { mode: 'normal', labelKey: 'paddingNormal' },
+  { mode: 'relaxed', labelKey: 'paddingRelaxed' },
+];
+
+const ExportModalContent: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const { t } = useI18n();
+  const docMode = useAppStore((s) => s.docMode);
+  const documentModel = useAppStore((s) => s.document);
+  const compileResult = useAppStore((s) => s.compileResult);
+  const initialBg = useAppStore((s) => s.previewBgMode);
+  const initialColor = useAppStore((s) => s.previewColor);
+  const pushToast = useAppStore((s) => s.pushToast);
 
-  const [format, setFormat] = useState<'png' | 'svg' | 'mathml'>('png');
-  const [scale, setScale] = useState<number>(3);
-  const [bgMode, setBgMode] = useState<CanvasBgMode>(currentBgMode || 'checker');
-  const [textColor, setTextColor] = useState<string>(
-    currentColor !== 'default' ? currentColor : '#000000'
-  );
+  const [format, setFormat] = useState<ExportFormat>('png');
+  const [scale, setScale] = useState<ScaleOption>(2);
+  const [padding, setPadding] = useState<ExportPaddingMode>('normal');
+  const [bgMode, setBgMode] = useState<CanvasBgMode>(initialBg);
+  const [textColor, setTextColor] = useState<string>(initialColor);
   const [adaptiveHalo, setAdaptiveHalo] = useState<boolean>(true);
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [busy, setBusy] = useState<boolean>(false);
+  const [svgResult, setSvgResult] = useState<ExportSvgResult | null>(null);
 
-  const outcome = useMemo(() => renderFormulaSafely(latex), [latex]);
-  const isEmpty = !latex.trim() || !outcome.cleanedLatex.trim();
+  const activeSingleLatex = documentModel.singleLatex;
 
-  // 动态计算微发光样式用于弹窗内实时预览（必须在早期 return 前调用以符合 React Hooks 规则）
-  const haloFilter = useMemo(() => {
-    if (bgMode !== 'checker' || !adaptiveHalo) return undefined;
-    let col = textColor;
-    if (col === 'default') col = '#0f172a';
-    const isLight = isColorLight(col);
-    const halo = isLight ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.98)';
-    return `drop-shadow(0 0 2px ${halo}) drop-shadow(0 0 1px ${halo})`;
-  }, [bgMode, adaptiveHalo, textColor]);
+  // Fetch offline vector SVG from MathJax v4 Worker whenever modal opens in single mode
+  useEffect(() => {
+    if (docMode !== 'single') return;
+    let cancelled = false;
+    setBusy(true);
+    compileFormulaSvg(activeSingleLatex)
+      .then((res) => {
+        if (!cancelled) {
+          setSvgResult(res);
+          setBusy(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSvgResult({
+            ok: false,
+            svg: '',
+            widthEx: 0,
+            heightEx: 0,
+            viewBox: '0 0 0 0',
+            error: 'Worker compile failed',
+          });
+          setBusy(false);
+        }
+      });
 
-  if (!isOpen) return null;
+    return () => {
+      cancelled = true;
+    };
+  }, [docMode, activeSingleLatex]);
 
-  const handleCopy = async () => {
-    if (isEmpty) {
-      onToast(t.toastFormulaEmpty, 'error');
-      return;
-    }
-    setIsProcessing(true);
-    try {
-      if (format === 'png') {
-        const res = await exportPng(latex, bgMode, textColor, true, {
-          scale,
-          adaptiveHalo,
+  const previewSvg =
+    svgResult?.ok && svgResult.svg
+      ? styleStandaloneSvg(svgResult.svg, {
           textColor,
-        });
-        onToast(res.message || t.toastCopiedPng, 'success');
-      } else if (format === 'svg') {
-        await exportSvg(latex, true, textColor, { textColor });
-        onToast(t.toastCopiedSvg, 'success');
-      } else if (format === 'mathml') {
-        copyMathMl(latex);
-        onToast(t.toastCopiedMathMl, 'success');
-      }
-      onClose();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Export failed';
-      onToast(msg, 'error');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+          bgMode,
+          includeBackground: false,
+        })
+      : '';
 
-  const handleDownload = async () => {
-    if (isEmpty) {
-      onToast(t.toastFormulaEmpty, 'error');
-      return;
-    }
-    setIsProcessing(true);
+  const handleAction = async (action: 'copy' | 'download') => {
+    setBusy(true);
     try {
-      if (format === 'png') {
-        const res = await exportPng(latex, bgMode, textColor, false, {
-          scale,
-          adaptiveHalo,
-          textColor,
-        });
-        onToast(res.message || t.toastDownloadedPng, 'success');
-      } else if (format === 'svg') {
-        await exportSvg(latex, false, textColor, { textColor });
-        onToast(t.toastDownloadedSvg, 'success');
-      } else if (format === 'mathml') {
-        copyMathMl(latex);
-        onToast(t.toastCopiedMathMl, 'success');
+      if (format === 'mathml') {
+        const mathml = compileResult.mathml;
+        if (!mathml) throw new Error('No MathML available');
+        if (action === 'copy') {
+          const ok = await copyTextToClipboard(mathml);
+          pushToast(ok ? t.toastMathMlCopied : t.toastActionFailed, ok ? 'success' : 'error');
+        } else {
+          triggerTextDownload(mathml, 'formula.mml', 'application/mathml+xml;charset=utf-8');
+          pushToast(t.toastSvgDownloaded, 'success');
+        }
+        return;
       }
-      onClose();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Download failed';
-      onToast(msg, 'error');
+
+      if (format === 'svg') {
+        const result =
+          svgResult?.ok ? svgResult : await compileFormulaSvg(activeSingleLatex);
+        if (!result.ok || !result.svg) {
+          throw new Error(result.error || 'SVG compilation failed');
+        }
+        const finalSvg = styleStandaloneSvg(result.svg, {
+          textColor,
+          bgMode,
+          includeBackground: bgMode !== 'checker',
+        });
+        if (action === 'copy') {
+          const ok = await copyTextToClipboard(finalSvg);
+          pushToast(ok ? t.toastSvgCopied : t.toastActionFailed, ok ? 'success' : 'error');
+        } else {
+          triggerTextDownload(finalSvg, 'formula.svg', 'image/svg+xml;charset=utf-8');
+          pushToast(t.toastSvgDownloaded, 'success');
+        }
+        return;
+      }
+
+      // PNG format
+      let blob: Blob;
+      if (docMode === 'single') {
+        const result =
+          svgResult?.ok ? svgResult : await compileFormulaSvg(activeSingleLatex);
+        blob = await renderSvgToPngBlob(result, {
+          scale,
+          bgMode,
+          textColor,
+          adaptiveHalo,
+          paddingMode: padding,
+        });
+      } else {
+        const container = document.getElementById('mixed-export-capture-target');
+        if (!container) throw new Error('Mixed capture target missing');
+        blob = await renderDomElementToPngBlob(container, {
+          scale,
+          bgMode,
+          paddingMode: padding,
+        });
+      }
+
+      const status = await deliverPngBlob(blob, action, 'visual-tex-formula.png');
+      if (status === 'copied') {
+        pushToast(t.toastImageCopied, 'success');
+      } else if (status === 'downloaded') {
+        pushToast(t.toastImageDownloaded, 'success');
+      } else {
+        pushToast(t.toastActionFailed, 'error');
+      }
+    } catch {
+      pushToast(t.toastActionFailed, 'error');
     } finally {
-      setIsProcessing(false);
+      setBusy(false);
     }
   };
 
   return (
-    <div
-      className="modal-backdrop"
-      style={{ display: 'flex' }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="modal-card export-settings-modal" style={{ maxWidth: '640px' }}>
-        {/* 头部 */}
-        <div className="modal-head">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-            <h3 style={{ margin: 0 }}>{t.exportModalTitle}</h3>
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={t.exportModalTitle}>
+      <div className="modal-card modal-card-lg">
+        <div className="modal-header">
+          <h3 className="modal-title">
+            <ImageDown size={18} />
+            <span>{t.exportModalTitle}</span>
+          </h3>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} aria-label={t.closeModal}>
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="modal-body">
+          <div className="export-tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={format === 'png'}
+              className={`export-tab ${format === 'png' ? 'is-active' : ''}`}
+              onClick={() => setFormat('png')}
+            >
+              PNG
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={format === 'svg'}
+              disabled={docMode === 'mixed'}
+              className={`export-tab ${format === 'svg' ? 'is-active' : ''}`}
+              onClick={() => setFormat('svg')}
+            >
+              SVG
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={format === 'mathml'}
+              className={`export-tab ${format === 'mathml' ? 'is-active' : ''}`}
+              onClick={() => setFormat('mathml')}
+            >
+              MathML
+            </button>
           </div>
+
+          <div className="export-layout-grid">
+            <div className="export-controls-col">
+              {format === 'png' && (
+                <>
+                  <div className="export-field">
+                    <span className="export-field-label">{t.exportScale}</span>
+                    <div className="export-option-row">
+                      {SCALE_OPTIONS.map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          className={`export-pill ${scale === s ? 'is-active' : ''}`}
+                          onClick={() => setScale(s)}
+                        >
+                          {s}x
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="export-field">
+                    <span className="export-field-label">{t.exportPadding}</span>
+                    <div className="export-option-row">
+                      {PADDING_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.mode}
+                          type="button"
+                          className={`export-pill ${padding === opt.mode ? 'is-active' : ''}`}
+                          onClick={() => setPadding(opt.mode)}
+                        >
+                          {t[opt.labelKey]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {format !== 'mathml' && (
+                <>
+                  <div className="export-field">
+                    <span className="export-field-label">{t.exportBg}</span>
+                    <div className="export-option-row">
+                      {(['checker', 'white', 'gray', 'dark'] as CanvasBgMode[]).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          className={`export-pill ${bgMode === mode ? 'is-active' : ''}`}
+                          onClick={() => setBgMode(mode)}
+                        >
+                          {mode === 'checker'
+                            ? t.bgChecker
+                            : mode === 'white'
+                              ? t.bgWhite
+                              : mode === 'gray'
+                                ? t.bgGray
+                                : t.bgDark}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="export-field">
+                    <span className="export-field-label">{t.exportTextColor}</span>
+                    <div className="export-option-row">
+                      {INK_OPTIONS.map((color) => (
+                        <button
+                          key={color}
+                          type="button"
+                          className={`export-pill ${textColor === color ? 'is-active' : ''}`}
+                          onClick={() => setTextColor(color)}
+                        >
+                          {color === 'default' ? t.colorDefault : color}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {format === 'png' && bgMode === 'checker' && docMode === 'single' && (
+                <label className="export-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={adaptiveHalo}
+                    onChange={(e) => setAdaptiveHalo(e.target.checked)}
+                  />
+                  <span>{t.exportAdaptiveHalo}</span>
+                </label>
+              )}
+
+              <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                {docMode === 'mixed' ? t.exportMixedPngNotice : t.exportHaloHint}
+              </p>
+            </div>
+
+            <div className="export-field">
+              <span className="export-field-label">{t.exportPreviewLabel}</span>
+              <div className={`export-preview-box canvas-bg-${bgMode}`}>
+                {format === 'mathml' ? (
+                  <pre
+                    style={{
+                      margin: 0,
+                      width: '100%',
+                      maxHeight: 200,
+                      overflow: 'auto',
+                      fontSize: '0.74rem',
+                      color: resolveExportTextColor(textColor, bgMode),
+                    }}
+                  >
+                    {compileResult.mathml || ''}
+                  </pre>
+                ) : docMode === 'mixed' ? (
+                  <div
+                    className="mixed-content-rendered"
+                    style={{ color: resolveExportTextColor(textColor, bgMode) }}
+                    dangerouslySetInnerHTML={{ __html: compileResult.html }}
+                  />
+                ) : busy && !previewSvg ? (
+                  <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                    {t.exportRendering}
+                  </span>
+                ) : previewSvg ? (
+                  <div dangerouslySetInnerHTML={{ __html: previewSvg }} />
+                ) : (
+                  <div
+                    style={{ color: resolveExportTextColor(textColor, bgMode) }}
+                    dangerouslySetInnerHTML={{ __html: compileResult.html }}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="modal-footer">
           <button
             type="button"
-            className="btn btn-sm btn-icon"
-            style={{ border: 'none' }}
-            onClick={onClose}
+            className="btn"
+            disabled={busy}
+            onClick={() => handleAction('copy')}
           >
-            &times;
+            <Copy size={14} />
+            <span>{t.exportCopyBtn}</span>
           </button>
-        </div>
-
-        {/* 主体配置 */}
-        <div className="modal-body custom-modern-scrollbar" style={{ maxHeight: '72vh', overflowY: 'auto', padding: '1.25rem 1.5rem' }}>
-          {/* 1. 导出格式选择 */}
-          <div className="export-field-group mb-4">
-            <label className="export-field-label">导出文件格式</label>
-            <div className="export-format-pills">
-              <button
-                type="button"
-                className={`export-format-pill ${format === 'png' ? 'active' : ''}`}
-                onClick={() => setFormat('png')}
-              >
-                <strong>PNG</strong>
-                <small>高分超清图片 (Word/PPT/微信)</small>
-              </button>
-              <button
-                type="button"
-                className={`export-format-pill ${format === 'svg' ? 'active' : ''}`}
-                onClick={() => setFormat('svg')}
-              >
-                <strong>SVG</strong>
-                <small>纯矢量代码 (无限放大无失真)</small>
-              </button>
-              <button
-                type="button"
-                className={`export-format-pill ${format === 'mathml' ? 'active' : ''}`}
-                onClick={() => setFormat('mathml')}
-              >
-                <strong>MathML</strong>
-                <small>Office 原生微软公式粘贴</small>
-              </button>
-            </div>
-          </div>
-
-          {/* 2. PNG 专属配置项 */}
-          {format === 'png' && (
-            <>
-              {/* 分辨率倍率 */}
-              <div className="export-field-group mb-4">
-                <label className="export-field-label">{t.exportResolution}</label>
-                <div className="export-scale-grid">
-                  {[
-                    { val: 1, label: t.exportScale1x },
-                    { val: 2, label: t.exportScale2x },
-                    { val: 3, label: t.exportScale3x },
-                    { val: 4, label: t.exportScale4x },
-                  ].map((item) => (
-                    <label
-                      key={item.val}
-                      className={`export-radio-item ${scale === item.val ? 'selected' : ''}`}
-                    >
-                      <input
-                        type="radio"
-                        name="export-scale"
-                        checked={scale === item.val}
-                        onChange={() => setScale(item.val)}
-                      />
-                      <span>{item.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              {/* 背景底色 */}
-              <div className="export-field-group mb-4">
-                <label className="export-field-label">{t.exportBgLabel}</label>
-                <div className="export-bg-options">
-                  <button
-                    type="button"
-                    className={`export-bg-tile bg-opt-checker ${bgMode === 'checker' ? 'active' : ''}`}
-                    onClick={() => setBgMode('checker')}
-                  >
-                    <span>透明棋盘底</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`export-bg-tile bg-opt-white ${bgMode === 'white' ? 'active' : ''}`}
-                    onClick={() => setBgMode('white')}
-                  >
-                    <span>纯白底色</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`export-bg-tile bg-opt-gray ${bgMode === 'gray' ? 'active' : ''}`}
-                    onClick={() => setBgMode('gray')}
-                  >
-                    <span>淡灰底色</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`export-bg-tile bg-opt-dark ${bgMode === 'dark' ? 'active' : ''}`}
-                    onClick={() => setBgMode('dark')}
-                  >
-                    <span>暗夜深色</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* 公式文字颜色控制 */}
-              <div className="export-field-group mb-4">
-                <label className="export-field-label">{t.exportTextColor}</label>
-                <div className="export-color-pills">
-                  {[
-                    { id: '#000000', label: t.exportColorBlack, bg: '#000000' },
-                    { id: '#ffffff', label: t.exportColorWhite, bg: '#ffffff' },
-                    { id: '#1e3a8a', label: t.exportColorBlue, bg: '#1e3a8a' },
-                    { id: 'default', label: t.exportColorDefault, bg: 'var(--text-main)' },
-                  ].map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      className={`export-color-pill ${textColor === c.id ? 'active' : ''}`}
-                      onClick={() => setTextColor(c.id)}
-                    >
-                      <span className="color-swatch-dot" style={{ backgroundColor: c.bg }} />
-                      <span>{c.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* 透明背景微发光描边保护 (Adaptive Halo) */}
-              {bgMode === 'checker' && (
-                <div className="export-halo-box mb-4">
-                  <label className="halo-checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={adaptiveHalo}
-                      onChange={(e) => setAdaptiveHalo(e.target.checked)}
-                    />
-                    <strong>{t.exportAdaptiveHalo}</strong>
-                  </label>
-                  <p className="halo-desc">{t.exportAdaptiveHaloDesc}</p>
-                </div>
-              )}
-            </>
-          )}
-
-          {/* 实时效果预览卡片 */}
-          <div className="export-preview-box">
-            <span className="export-preview-badge">导出渲染模拟效果</span>
-            <div
-              className={`export-mini-canvas canvas-bg-${bgMode}`}
-              style={{
-                color: textColor === 'default' ? (bgMode === 'dark' ? '#f8fafc' : '#0f172a') : textColor,
-              }}
-            >
-              <div
-                className="export-mini-formula"
-                style={{ filter: haloFilter }}
-                dangerouslySetInnerHTML={{ __html: outcome.html || '<em>(公式内容为空)</em>' }}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* 底部操作栏 */}
-        <div className="modal-foot" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <button type="button" className="btn btn-sm" onClick={onClose} disabled={isProcessing}>
-            {t.close}
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={busy}
+            onClick={() => handleAction('download')}
+          >
+            <Download size={14} />
+            <span>{t.exportDownloadBtn}</span>
           </button>
-          <div style={{ display: 'flex', gap: '0.6rem' }}>
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={handleCopy}
-              disabled={isProcessing || isEmpty}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
-                <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
-              </svg>
-              <span>{format === 'png' ? t.exportActionCopyPng : t.exportActionCopySvg}</span>
-            </button>
-            <button
-              type="button"
-              className="btn btn-sm btn-primary"
-              onClick={handleDownload}
-              disabled={isProcessing || isEmpty}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-              <strong>{format === 'png' ? t.exportActionDownloadPng : t.exportActionDownloadSvg}</strong>
-            </button>
-          </div>
         </div>
       </div>
     </div>
   );
+};
+
+export const ExportModal: React.FC = () => {
+  const isOpen = useAppStore((s) => s.modals.export);
+  const setModalOpen = useAppStore((s) => s.setModalOpen);
+  if (!isOpen) return null;
+  return <ExportModalContent onClose={() => setModalOpen('export', false)} />;
 };

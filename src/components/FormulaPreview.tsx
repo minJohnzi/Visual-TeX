@@ -1,654 +1,364 @@
-import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import {
-  exportPng,
-  exportSvg,
-  copyMathMl,
-  copyPlainText,
-  type CanvasBgMode,
-} from '../utils/exportPng';
-import { renderFormulaSafely, autoFixLatexSyntax } from '../utils/latex';
+  AlertTriangle,
+  ArrowUpRight,
+  Copy,
+  FileCode2,
+  Image,
+  ImageDown,
+  Maximize2,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react';
+import { copyTextToClipboard } from '../core/export/clipboard';
+import {
+  deliverPngBlob,
+  renderDomElementToPngBlob,
+  triggerTextDownload,
+} from '../core/export/domPng';
+import {
+  compileFormulaSvg,
+  exportDocumentToOfflineHtml,
+  renderSvgToPngBlob,
+  styleStandaloneSvg,
+} from '../core/export/mathjaxClient';
+import { sanitizeFilename } from '../core/export/offlineHtml';
+import { CanvasBgMode } from '../core/types';
 import { useI18n } from '../i18n/context';
-import { ExportModal } from './ExportModal';
+import { useAppStore } from '../store/useAppStore';
 
-interface FormulaPreviewProps {
-  latex: string;
-  onToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
-  onJumpToError?: (pos: number, length?: number) => void;
-  onAutoFix?: (fixedLatex: string) => void;
-}
+const INK_SWATCHES = ['default', '#2563eb', '#059669', '#7c3aed', '#d97706', '#dc2626'];
 
-export const FormulaPreview: React.FC<FormulaPreviewProps> = ({
-  latex,
-  onToast,
-  onJumpToError,
-  onAutoFix,
-}) => {
+const BG_OPTIONS: Array<{
+  mode: CanvasBgMode;
+  className: string;
+  labelKey: 'bgChecker' | 'bgWhite' | 'bgGray' | 'bgDark';
+}> = [
+  { mode: 'checker', className: 'bg-opt-checker', labelKey: 'bgChecker' },
+  { mode: 'white', className: 'bg-opt-white', labelKey: 'bgWhite' },
+  { mode: 'gray', className: 'bg-opt-gray', labelKey: 'bgGray' },
+  { mode: 'dark', className: 'bg-opt-dark', labelKey: 'bgDark' },
+];
+
+export const FormulaPreview: React.FC = () => {
   const { t } = useI18n();
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const formulaRef = useRef<HTMLDivElement | null>(null);
 
-  const [scale, setScale] = useState<number>(1.5);
-  const [isFitToWidth, setIsFitToWidth] = useState<boolean>(false);
-  const [fitScale, setFitScale] = useState<number>(1.0);
+  const compileResult = useAppStore((s) => s.compileResult);
+  const docMode = useAppStore((s) => s.docMode);
+  const documentModel = useAppStore((s) => s.document);
+  const delimiterMode = useAppStore((s) => s.delimiterMode);
+  const previewBgMode = useAppStore((s) => s.previewBgMode);
+  const previewColor = useAppStore((s) => s.previewColor);
+  const previewZoom = useAppStore((s) => s.previewZoom);
 
-  const [bgMode, setBgMode] = useState<CanvasBgMode>('checker');
-  const [color, setColor] = useState<string>('default');
-  const [showErrorDetail, setShowErrorDetail] = useState<boolean>(false);
-  const [isExporting, setIsExporting] = useState<boolean>(false);
-  const [showExportModal, setShowExportModal] = useState<boolean>(false);
+  const setPreviewBgMode = useAppStore((s) => s.setPreviewBgMode);
+  const setPreviewColor = useAppStore((s) => s.setPreviewColor);
+  const setPreviewZoom = useAppStore((s) => s.setPreviewZoom);
+  const setEditorMode = useAppStore((s) => s.setEditorMode);
+  const setActiveBlockId = useAppStore((s) => s.setActiveBlockId);
+  const setModalOpen = useAppStore((s) => s.setModalOpen);
+  const pushToast = useAppStore((s) => s.pushToast);
 
-  const canvasAreaRef = useRef<HTMLDivElement | null>(null);
-  const renderTargetRef = useRef<HTMLDivElement | null>(null);
-
-  const colorList = useMemo(
-    () => [
-      { color: 'default', title: t.colorDefault },
-      { color: '#2563eb', title: t.colorBlue },
-      { color: '#059669', title: t.colorGreen },
-      { color: '#7c3aed', title: t.colorPurple },
-      { color: '#d97706', title: t.colorAmber },
-      { color: '#dc2626', title: t.colorRed },
-    ],
-    [t]
-  );
-
-  const outcome = useMemo(() => renderFormulaSafely(latex), [latex]);
-  const isEmpty = !latex.trim() || !outcome.cleanedLatex.trim();
-  const isOk = outcome.success || isEmpty;
-
-  // 自适应宽度 (Fit to Width) 计算逻辑
-  const recomputeFitScale = useCallback(() => {
-    if (!isFitToWidth) return;
-    const container = canvasAreaRef.current;
-    const target = renderTargetRef.current;
-    if (!container || !target) return;
-
-    const availableWidth = Math.max(container.clientWidth - 56, 120);
-    // 获取公式实际未缩放内容宽度
-    const child = target.firstElementChild as HTMLElement | null;
-    const contentWidth = child ? child.scrollWidth : target.scrollWidth;
-
-    if (contentWidth > availableWidth && availableWidth > 0) {
-      const calculated = availableWidth / contentWidth;
-      const bounded = Math.min(1.0, Math.max(0.4, Number(calculated.toFixed(2))));
-      setFitScale(bounded);
+  const handleFitToWidth = useCallback(() => {
+    const stage = stageRef.current;
+    const formula = formulaRef.current;
+    if (!stage || !formula) return;
+    const available = stage.clientWidth - 40;
+    const naturalWidth = formula.scrollWidth;
+    if (naturalWidth > available && available > 80) {
+      setPreviewZoom(Math.max(0.5, available / naturalWidth));
     } else {
-      setFitScale(1.0);
+      setPreviewZoom(1);
     }
-  }, [isFitToWidth]);
+  }, [setPreviewZoom]);
 
-  // 监听容器与公式内容尺寸变化
   useEffect(() => {
-    if (!isFitToWidth) return;
-
-    recomputeFitScale();
-
-    const container = canvasAreaRef.current;
-    if (!container || typeof ResizeObserver === 'undefined') return;
-
+    const stage = stageRef.current;
+    if (!stage || typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(() => {
-      recomputeFitScale();
+      // Keep layout measurements crisp on mobile/resize without forcing unwanted zoom shifts
     });
-
-    observer.observe(container);
-    if (renderTargetRef.current) {
-      observer.observe(renderTargetRef.current);
-    }
-
+    observer.observe(stage);
     return () => observer.disconnect();
-  }, [isFitToWidth, outcome.html, recomputeFitScale]);
+  }, []);
 
-  // 快捷缩放操作
-  const handleZoomIn = () => {
-    setIsFitToWidth(false);
-    setScale((prev) => Math.min(3.0, Number((prev + 0.25).toFixed(2))));
+  const handleLocateError = () => {
+    const err = compileResult.error;
+    if (!err) return;
+    if (err.blockId && err.blockId !== 'single') {
+      setActiveBlockId(err.blockId);
+    }
+    // Store focusOffset on lastTransaction and switch to Source mode
+    useAppStore.setState((s) => ({
+      editorMode: 'source',
+      lastTransaction: {
+        seq: s.lastTransaction.seq + 1,
+        origin: 'external',
+        blockId: err.blockId ?? s.activeBlockId,
+        focusOffset: err.index,
+      },
+    }));
+    setEditorMode('source');
   };
 
-  const handleZoomOut = () => {
-    setIsFitToWidth(false);
-    setScale((prev) => Math.max(0.5, Number((prev - 0.25).toFixed(2))));
+  const handleCopyMathMl = async () => {
+    if (!compileResult.mathml) return;
+    const ok = await copyTextToClipboard(compileResult.mathml);
+    pushToast(ok ? t.toastMathMlCopied : t.toastActionFailed, ok ? 'success' : 'error');
   };
 
-  const handleZoomReset = () => {
-    setIsFitToWidth(false);
-    setScale(1.0);
+  const handleExportHtml = async () => {
+    try {
+      const html = await exportDocumentToOfflineHtml(
+        documentModel,
+        delimiterMode,
+        'Visual-TeX Formula Snapshot'
+      );
+      const name = sanitizeFilename(
+        docMode === 'mixed' ? 'visual-tex-notes' : 'visual-tex-formula',
+        'formula'
+      );
+      triggerTextDownload(html, `${name}.html`, 'text/html;charset=utf-8');
+      pushToast(t.toastHtmlDownloaded, 'success');
+    } catch {
+      pushToast(t.toastActionFailed, 'error');
+    }
   };
 
-  const toggleFitToWidth = () => {
-    setIsFitToWidth((prev) => {
-      const next = !prev;
-      if (next) {
-        window.requestAnimationFrame(() => recomputeFitScale());
+  const handleQuickCopyPng = async () => {
+    if (compileResult.isEmpty || (docMode === 'single' && compileResult.hasError)) return;
+    try {
+      let blob: Blob;
+      if (docMode === 'single') {
+        const result = await compileFormulaSvg(documentModel.singleLatex);
+        if (!result.ok || !result.svg) throw new Error(result.error || 'SVG failed');
+        blob = await renderSvgToPngBlob(result, {
+          scale: 3,
+          bgMode: previewBgMode,
+          textColor: previewColor,
+          adaptiveHalo: true,
+          paddingMode: 'normal',
+        });
+      } else {
+        if (!formulaRef.current) throw new Error('Preview target missing');
+        blob = await renderDomElementToPngBlob(formulaRef.current, {
+          scale: 3,
+          bgMode: previewBgMode,
+          paddingMode: 'normal',
+        });
       }
-      return next;
-    });
+      const status = await deliverPngBlob(blob, 'copy', 'visual-tex-formula.png');
+      if (status === 'copied') {
+        pushToast(t.toastImageCopied, 'success');
+      } else if (status === 'downloaded') {
+        pushToast(t.toastImageDownloaded, 'success');
+      } else {
+        pushToast(t.toastActionFailed, 'error');
+      }
+    } catch {
+      pushToast(t.toastActionFailed, 'error');
+    }
   };
 
-  // 当前有效应用的缩放倍率
-  const activeScale = isFitToWidth ? fitScale : scale;
-
-  // 快速复制 PNG (默认 3.5x 高清)
-  const handleCopyPng = async () => {
-    if (isEmpty) {
-      onToast(t.toastFormulaEmpty, 'error');
-      return;
-    }
-    setIsExporting(true);
-    onToast(t.toastGeneratingPng, 'info');
+  const handleQuickCopySvg = async () => {
+    if (docMode !== 'single' || compileResult.isEmpty || compileResult.hasError) return;
     try {
-      const res = await exportPng(latex, bgMode, color, true, {
-        scale: 3,
-        adaptiveHalo: bgMode === 'checker',
+      const result = await compileFormulaSvg(documentModel.singleLatex);
+      if (!result.ok || !result.svg) throw new Error(result.error || 'SVG failed');
+      const finalSvg = styleStandaloneSvg(result.svg, {
+        textColor: previewColor,
+        bgMode: previewBgMode,
+        includeBackground: previewBgMode !== 'checker',
       });
-      onToast(res.message || t.toastCopiedPng, 'success');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : t.toastClipboardUnavailable;
-      onToast(msg, 'error');
-    } finally {
-      setIsExporting(false);
+      const ok = await copyTextToClipboard(finalSvg);
+      pushToast(ok ? t.toastSvgCopied : t.toastActionFailed, ok ? 'success' : 'error');
+    } catch {
+      pushToast(t.toastActionFailed, 'error');
     }
   };
 
-  // 快速下载 PNG
-  const handleDownloadPng = async () => {
-    if (isEmpty) {
-      onToast(t.toastFormulaEmpty, 'error');
-      return;
-    }
-    setIsExporting(true);
-    try {
-      const res = await exportPng(latex, bgMode, color, false, {
-        scale: 3,
-        adaptiveHalo: bgMode === 'checker',
-      });
-      onToast(res.message || t.toastDownloadedPng, 'success');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Download failed';
-      onToast(msg, 'error');
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
-  // 快速复制 SVG
-  const handleCopySvg = async () => {
-    if (isEmpty) {
-      onToast(t.toastFormulaEmpty, 'error');
-      return;
-    }
-    try {
-      await exportSvg(latex, true, color);
-      onToast(t.toastCopiedSvg, 'success');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : t.toastClipboardUnavailable;
-      onToast(msg, 'error');
-    }
-  };
-
-  // 快速下载 SVG
-  const handleDownloadSvg = async () => {
-    if (isEmpty) {
-      onToast(t.toastFormulaEmpty, 'error');
-      return;
-    }
-    try {
-      await exportSvg(latex, false, color);
-      onToast(t.toastDownloadedSvg, 'success');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Download failed';
-      onToast(msg, 'error');
-    }
-  };
-
-  // 快速复制 MathML
-  const handleCopyMathMl = () => {
-    if (isEmpty) {
-      onToast(t.toastFormulaEmpty, 'error');
-      return;
-    }
-    try {
-      copyMathMl(latex);
-      onToast(t.toastCopiedMathMl, 'success');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to generate MathML';
-      onToast(msg, 'error');
-    }
-  };
-
-  // 快速复制 LaTeX
-  const handleCopyLatex = async () => {
-    if (isEmpty) {
-      onToast(t.toastFormulaEmpty, 'error');
-      return;
-    }
-    await copyPlainText(latex);
-    onToast(t.toastCopiedLatex, 'success');
-  };
+  const canvasClass = `preview-canvas-stage canvas-bg-${previewBgMode}`;
 
   return (
-    <>
-      <section className="card-panel preview-panel" aria-label={t.previewTitle}>
-        {/* 预览区顶部控制栏 */}
-        <div className="card-header">
-          <span className="card-title">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
-            <span>{t.previewTitle}</span>
-          </span>
-
-          <div className="preview-controls">
-            {/* 缩放比例与自适应宽度按钮组 */}
-            <div className="ctrl-item">
-              <span>{t.zoom}:</span>
-              <div className="zoom-action-group">
-                <button
-                  type="button"
-                  className="btn btn-sm btn-icon zoom-step-btn"
-                  onClick={handleZoomOut}
-                  title={t.zoomOut}
-                  aria-label={t.zoomOut}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                  </svg>
-                </button>
-
-                <button
-                  type="button"
-                  className={`btn btn-sm zoom-value-btn ${!isFitToWidth && scale === 1 ? 'active' : ''}`}
-                  onClick={handleZoomReset}
-                  title={t.zoomReset}
-                >
-                  {isFitToWidth ? `${Math.round(fitScale * 100)}%` : `${Math.round(scale * 100)}%`}
-                </button>
-
-                <button
-                  type="button"
-                  className="btn btn-sm btn-icon zoom-step-btn"
-                  onClick={handleZoomIn}
-                  title={t.zoomIn}
-                  aria-label={t.zoomIn}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <line x1="12" y1="5" x2="12" y2="19" />
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                  </svg>
-                </button>
-
-                {/* 自适应宽度切换按钮 */}
-                <button
-                  type="button"
-                  className={`btn btn-sm btn-fit-width ${isFitToWidth ? 'active' : ''}`}
-                  onClick={toggleFitToWidth}
-                  title={t.fitToWidthTooltip}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
-                  </svg>
-                  <span>{t.fitToWidth}</span>
-                </button>
-              </div>
-            </div>
-
-            {/* 背景选择器 */}
-            <div className="ctrl-item">
-              <span>{t.bgLabel}:</span>
-              <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
-                <button
-                  type="button"
-                  className={`bg-select-btn bg-opt-checker ${bgMode === 'checker' ? 'active' : ''}`}
-                  title={t.bgCheckerTitle}
-                  onClick={() => setBgMode('checker')}
-                />
-                <button
-                  type="button"
-                  className={`bg-select-btn bg-opt-white ${bgMode === 'white' ? 'active' : ''}`}
-                  title={t.bgWhiteTitle}
-                  onClick={() => setBgMode('white')}
-                />
-                <button
-                  type="button"
-                  className={`bg-select-btn bg-opt-gray ${bgMode === 'gray' ? 'active' : ''}`}
-                  title={t.bgGrayTitle}
-                  onClick={() => setBgMode('gray')}
-                />
-                <button
-                  type="button"
-                  className={`bg-select-btn bg-opt-dark ${bgMode === 'dark' ? 'active' : ''}`}
-                  title={t.bgDarkTitle}
-                  onClick={() => setBgMode('dark')}
-                />
-              </div>
-            </div>
-
-            {/* 公式字体颜色 */}
-            <div className="ctrl-item">
-              <span>{t.colorLabel}:</span>
-              <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center' }}>
-                {colorList.map((c) => (
-                  <button
-                    key={c.color}
-                    type="button"
-                    className={`color-swatch-btn ${color === c.color ? 'active' : ''}`}
-                    style={{ background: c.color === 'default' ? 'currentColor' : c.color }}
-                    title={c.title}
-                    onClick={() => setColor(c.color)}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
+    <section className="preview-panel" aria-label={t.previewTitle}>
+      <div className="panel-header">
+        <div className="panel-title-group">
+          <h2 className="panel-title">{t.previewTitle}</h2>
         </div>
 
-        {/* 画布预览屏幕 */}
-        <div ref={canvasAreaRef} className={`preview-canvas-area canvas-bg-${bgMode}`}>
-          {/* 角落语法状态角标 */}
+        <div className="zoom-control-group">
+          <button
+            type="button"
+            className="toolbar-btn"
+            onClick={() => setPreviewZoom(previewZoom - 0.15)}
+            title={t.zoomOut}
+            aria-label={t.zoomOut}
+          >
+            <ZoomOut size={14} />
+          </button>
+          <button
+            type="button"
+            className="toolbar-btn"
+            onClick={() => setPreviewZoom(1)}
+            title={t.zoomReset}
+          >
+            <span className="zoom-value">{Math.round(previewZoom * 100)}%</span>
+          </button>
+          <button
+            type="button"
+            className="toolbar-btn"
+            onClick={() => setPreviewZoom(previewZoom + 0.15)}
+            title={t.zoomIn}
+            aria-label={t.zoomIn}
+          >
+            <ZoomIn size={14} />
+          </button>
+          <button
+            type="button"
+            className="toolbar-btn"
+            onClick={handleFitToWidth}
+            title={t.fitToWidth}
+            aria-label={t.fitToWidth}
+          >
+            <Maximize2 size={14} />
+          </button>
+        </div>
+      </div>
+
+      <div className="preview-controls-bar">
+        <div className="preview-control-group">
+          <div className="bg-selector-group" role="group" aria-label={t.exportBg}>
+            {BG_OPTIONS.map((opt) => (
+              <button
+                key={opt.mode}
+                type="button"
+                className={`bg-opt-btn ${opt.className} ${
+                  previewBgMode === opt.mode ? 'is-active' : ''
+                }`}
+                onClick={() => setPreviewBgMode(opt.mode)}
+                title={t[opt.labelKey]}
+                aria-label={t[opt.labelKey]}
+              />
+            ))}
+          </div>
+
+          <span className="toolbar-divider" aria-hidden="true" />
+
+          <div className="color-swatch-group" role="group" aria-label={t.exportTextColor}>
+            {INK_SWATCHES.map((swatch) => (
+              <button
+                key={swatch}
+                type="button"
+                className={`color-swatch-btn ${
+                  swatch === 'default' ? 'color-swatch-default' : ''
+                } ${previewColor === swatch ? 'is-active' : ''}`}
+                style={swatch !== 'default' ? { backgroundColor: swatch } : undefined}
+                onClick={() => setPreviewColor(swatch)}
+                title={swatch === 'default' ? t.colorDefault : swatch}
+                aria-label={swatch === 'default' ? t.colorDefault : swatch}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div ref={stageRef} className={canvasClass}>
+        {compileResult.isEmpty ? (
+          <div className="preview-empty-hint">{t.previewEmpty}</div>
+        ) : compileResult.hasError && docMode === 'single' ? (
+          <div className="preview-empty-hint">{t.syntaxErrorTitle}</div>
+        ) : (
           <div
-            className={`syntax-status-badge ${
-              isOk
-                ? outcome.isMixed
-                  ? 'badge-mixed'
-                  : outcome.wasAutoAligned
-                  ? 'badge-aligned'
-                  : outcome.wasAutoFixed
-                  ? 'badge-fixed'
-                  : 'ok'
-                : 'error'
-            }`}
-            onClick={() => {
-              if (!isOk) {
-                setShowErrorDetail((prev) => !prev);
-                if (onJumpToError && typeof outcome.errorPosition === 'number') {
-                  onJumpToError(outcome.errorPosition, outcome.errorLength || 1);
-                }
-              }
+            id="mixed-export-capture-target"
+            ref={formulaRef}
+            className="preview-formula-scaled"
+            style={{
+              transform: `scale(${previewZoom})`,
+              color: previewColor !== 'default' ? previewColor : undefined,
             }}
-            title={
-              !isOk
-                ? `${t.syntaxWarning} (${t.clickToJumpError})`
-                : outcome.isMixed
-                ? t.mixedModeBadge
-                : outcome.wasAutoAligned
-                ? t.autoAlignedBadge
-                : outcome.wasAutoFixed
-                ? t.autoFixedBadge
-                : t.syntaxValid
+            dangerouslySetInnerHTML={{ __html: compileResult.html }}
+          />
+        )}
+      </div>
+
+      {compileResult.error && (
+        <div className="syntax-error-banner" role="alert">
+          <div className="syntax-error-header">
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <AlertTriangle size={15} />
+              <span>
+                {t.syntaxErrorTitle} (L{compileResult.error.line}:C{compileResult.error.column})
+              </span>
+            </span>
+            <button
+              type="button"
+              className="syntax-error-jump-btn"
+              onClick={handleLocateError}
+            >
+              <span>{t.jumpToError}</span>
+              <ArrowUpRight size={13} />
+            </button>
+          </div>
+          <div className="syntax-error-detail" onClick={handleLocateError}>
+            {compileResult.error.message}
+          </div>
+        </div>
+      )}
+
+      <div className="preview-actions-footer">
+        <div className="preview-action-buttons">
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={handleQuickCopyPng}
+            disabled={compileResult.isEmpty || (docMode === 'single' && compileResult.hasError)}
+          >
+            <Image size={13} />
+            <span>{t.quickCopyPng}</span>
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={handleQuickCopySvg}
+            disabled={
+              docMode !== 'single' || compileResult.isEmpty || compileResult.hasError
             }
           >
-            {isOk ? (
-              outcome.isMixed ? (
-                <>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <polyline points="14 2 14 8 20 8" />
-                    <line x1="16" y1="13" x2="8" y2="13" />
-                    <line x1="16" y1="17" x2="8" y2="17" />
-                  </svg>
-                  <span>{t.mixedModeBadge}</span>
-                </>
-              ) : outcome.wasAutoAligned ? (
-                <>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <line x1="21" y1="6" x2="3" y2="6" />
-                    <line x1="15" y1="12" x2="3" y2="12" />
-                    <line x1="17" y1="18" x2="3" y2="18" />
-                  </svg>
-                  <span>{t.autoAlignedBadge}</span>
-                </>
-              ) : outcome.wasAutoFixed ? (
-                <>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3z" />
-                  </svg>
-                  <span>{t.autoFixedBadge}</span>
-                </>
-              ) : (
-                <>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                  <span>{t.syntaxValid}</span>
-                </>
-              )
-            ) : (
-              <>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" y1="8" x2="12" y2="12" />
-                  <line x1="12" y1="16" x2="12.01" y2="16" />
-                </svg>
-                <span>{t.syntaxWarning}</span>
-              </>
-            )}
-          </div>
-
-          {/* 语法错误详情气泡 */}
-          <div className={`syntax-error-detail ${showErrorDetail && !isOk ? 'show' : ''}`}>
-            <div className="syntax-error-header">
-              <span className="error-title">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" y1="8" x2="12" y2="12" />
-                  <line x1="12" y1="16" x2="12.01" y2="16" />
-                </svg>
-                <span>{t.syntaxWarning}</span>
-              </span>
-              {typeof outcome.errorLine === 'number' && typeof outcome.errorColumn === 'number' && (
-                <span className="error-pos-pill">
-                  {t.lineColLabel
-                    .replace('{line}', String(outcome.errorLine))
-                    .replace('{col}', String(outcome.errorColumn))}
-                </span>
-              )}
-            </div>
-
-            <div className="syntax-error-msg">
-              {outcome.errorMessage || 'Syntax issue detected; lenient fallback rendering applied.'}
-            </div>
-
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.45rem' }}>
-              {typeof outcome.errorPosition === 'number' && onJumpToError && (
-                <button
-                  type="button"
-                  className="btn-jump-error-action"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onJumpToError(outcome.errorPosition!, outcome.errorLength || 1);
-                  }}
-                  title={t.jumpToError}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="22" y1="12" x2="18" y2="12" />
-                    <line x1="6" y1="12" x2="2" y2="12" />
-                    <line x1="12" y1="6" x2="12" y2="2" />
-                    <line x1="12" y1="22" x2="12" y2="18" />
-                  </svg>
-                  <span>{t.clickToJumpError}</span>
-                </button>
-              )}
-
-              {onAutoFix && (
-                <button
-                  type="button"
-                  className="btn-jump-error-action btn-autofix-action"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const { fixed, wasModified } = autoFixLatexSyntax(latex);
-                    if (wasModified) {
-                      onAutoFix(fixed);
-                      onToast(t.toastAutoFixed, 'success');
-                    } else {
-                      onToast(t.toastAutoFixed, 'info');
-                    }
-                  }}
-                  title={t.autoFixTooltip}
-                  style={{
-                    backgroundColor: 'rgba(234, 179, 8, 0.15)',
-                    color: '#ca8a04',
-                    borderColor: 'rgba(234, 179, 8, 0.3)',
-                  }}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-                  </svg>
-                  <span>{t.autoFixAction}</span>
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* 渲染公式目标 */}
-          <div
-            ref={renderTargetRef}
-            className={`formula-render-target ${outcome.isMixed ? 'is-mixed-mode' : ''}`}
-            style={{
-              transform: `scale(${activeScale})`,
-              transformOrigin: 'center center',
-              color: color === 'default' ? undefined : color,
-              transition: 'transform 0.18s cubic-bezier(0.16, 1, 0.3, 1)',
-            }}
+            <Copy size={13} />
+            <span>{t.quickCopySvg}</span>
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={handleCopyMathMl}
+            disabled={!compileResult.mathml}
           >
-            {isEmpty ? (
-              <span style={{ color: 'var(--text-light)', fontStyle: 'italic' }}>
-                {t.previewEmptyPlaceholder}
-              </span>
-            ) : outcome.html ? (
-              <div dangerouslySetInnerHTML={{ __html: outcome.html }} />
-            ) : (
-              <span style={{ color: 'var(--text-light)', fontStyle: 'italic' }}>
-                {t.previewEmptyPlaceholder}
-              </span>
-            )}
-          </div>
+            <Copy size={13} />
+            <span>{t.copyMathMl}</span>
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={handleExportHtml}
+            disabled={compileResult.isEmpty}
+          >
+            <FileCode2 size={13} />
+            <span>{t.exportOfflineHtml}</span>
+          </button>
         </div>
 
-        {/* 导出工具栏 */}
-        <div className="export-toolbar">
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="m19 11-4-7-4 7" />
-              <path d="M15 4v16" />
-            </svg>
-            <span>{t.exportToolbarLabel}:</span>
-          </div>
-
-          <div className="export-buttons-group">
-            {/* 复制高清 PNG */}
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={handleCopyPng}
-              disabled={isExporting}
-              title={t.copyPngTooltip}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
-                <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
-              </svg>
-              <strong>{t.copyPng}</strong>
-            </button>
-
-            {/* 下载 PNG */}
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={handleDownloadPng}
-              disabled={isExporting}
-              title={t.downloadPngTooltip}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-              <span>{t.downloadPng}</span>
-            </button>
-
-            {/* 复制 SVG */}
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={handleCopySvg}
-              title={t.copySvgTooltip}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="12 2 2 7 12 12 22 7 12 2" />
-                <polyline points="2 17 12 22 22 17" />
-                <polyline points="2 12 12 17 22 12" />
-              </svg>
-              <span>{t.copySvg}</span>
-            </button>
-
-            {/* 下载 SVG */}
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={handleDownloadSvg}
-              title={t.downloadSvgTooltip}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-              <span>{t.downloadSvg}</span>
-            </button>
-
-            {/* 复制 MathML (Word) */}
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={handleCopyMathMl}
-              title={t.copyMathMlTooltip}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2" />
-              </svg>
-              <span>{t.copyMathMl}</span>
-            </button>
-
-            {/* 复制 LaTeX */}
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={handleCopyLatex}
-              title={t.copyLatexTooltip}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
-                <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
-              </svg>
-              <span>{t.copyLatex}</span>
-            </button>
-
-            {/* 高级导出配置面板按钮 */}
-            <button
-              type="button"
-              className="btn btn-sm btn-outline-primary"
-              onClick={() => setShowExportModal(true)}
-              title={t.exportAdvancedTooltip}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
-              <span>{t.exportAdvancedBtn}</span>
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* 高级导出弹窗 */}
-      <ExportModal
-        isOpen={showExportModal}
-        onClose={() => setShowExportModal(false)}
-        latex={latex}
-        currentBgMode={bgMode}
-        currentColor={color}
-        onToast={onToast}
-      />
-    </>
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          onClick={() => setModalOpen('export', true)}
+          disabled={compileResult.isEmpty || (docMode === 'single' && compileResult.hasError)}
+        >
+          <ImageDown size={14} />
+          <span>{t.openExportModal}</span>
+        </button>
+      </div>
+    </section>
   );
 };

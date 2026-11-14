@@ -1,78 +1,69 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import React, { act } from 'react';
-import { createRoot } from 'react-dom/client';
-import { ExportModal } from './ExportModal';
+import { act } from 'react';
+import { createRoot, Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { I18nProvider } from '../i18n/context';
+import { useAppStore } from '../store/useAppStore';
+import { ExportModal } from './ExportModal';
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
-describe('ExportModal Hooks stability test', () => {
-  it('renders and toggles isOpen between false and true without breaking React Rules of Hooks', async () => {
-    const container = document.createElement('div');
+describe('ExportModal lazy mount & format controls', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    container = document.createElement('div');
     document.body.appendChild(container);
-    const root = createRoot(container);
-    const onToast = vi.fn();
-    const onClose = vi.fn();
+    root = createRoot(container);
+    useAppStore.getState().setDocMode('single');
+    useAppStore.getState().setSingleLatex('E = mc^2', 'external');
+    useAppStore.getState().setModalOpen('export', false);
+  });
 
-    // 1. Initial render with isOpen = false
-    await act(async () => {
-      root.render(
-        <I18nProvider>
-          <ExportModal
-            isOpen={false}
-            onClose={onClose}
-            latex="x^2 + y^2 = z^2"
-            currentBgMode="checker"
-            currentColor="default"
-            onToast={onToast}
-          />
-        </I18nProvider>
-      );
-    });
-
-    expect(container.querySelector('.modal-backdrop')).toBeNull();
-
-    // 2. Re-render with isOpen = true (Previously caused: Error: Rendered more hooks than during previous render)
-    await act(async () => {
-      root.render(
-        <I18nProvider>
-          <ExportModal
-            isOpen={true}
-            onClose={onClose}
-            latex="x^2 + y^2 = z^2"
-            currentBgMode="checker"
-            currentColor="default"
-            onToast={onToast}
-          />
-        </I18nProvider>
-      );
-    });
-
-    expect(container.querySelector('.modal-backdrop')).not.toBeNull();
-    expect(container.querySelector('.export-settings-modal')).not.toBeNull();
-
-    // 3. Re-render back to isOpen = false
-    await act(async () => {
-      root.render(
-        <I18nProvider>
-          <ExportModal
-            isOpen={false}
-            onClose={onClose}
-            latex="x^2 + y^2 = z^2"
-            currentBgMode="checker"
-            currentColor="default"
-            onToast={onToast}
-          />
-        </I18nProvider>
-      );
-    });
-
-    expect(container.querySelector('.modal-backdrop')).toBeNull();
-
-    // Cleanup
-    await act(async () => {
+  afterEach(() => {
+    act(() => {
       root.unmount();
     });
     container.remove();
+  });
+
+  it('does not mount modal DOM when closed', () => {
+    act(() => {
+      root.render(
+        <I18nProvider>
+          <ExportModal />
+        </I18nProvider>
+      );
+    });
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('mounts PNG, SVG, and MathML format controls when open', () => {
+    useAppStore.getState().setModalOpen('export', true);
+
+    act(() => {
+      root.render(
+        <I18nProvider>
+          <ExportModal />
+        </I18nProvider>
+      );
+    });
+
+    const dialog = container.querySelector('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+
+    const tabs = Array.from(container.querySelectorAll('[role="tab"]')) as HTMLButtonElement[];
+    expect(tabs.map((el) => el.textContent?.trim())).toEqual(['PNG', 'SVG', 'MathML']);
+
+    // Verify 5x resolution pill and export padding options exist on PNG tab
+    expect(container.textContent).toContain('5x');
+    expect(container.textContent).toContain('8px');
+    expect(container.textContent).toContain('32px');
+
+    const mathmlTab = tabs[2];
+    act(() => {
+      mathmlTab.click();
+    });
+    expect(container.textContent).toContain('<math');
   });
 });

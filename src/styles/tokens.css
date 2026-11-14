@@ -1,0 +1,167 @@
+:root {
+  color-scheme: light;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", Monaco, Consolas, "Courier New", monospace;
+
+  --bg-body: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-surface-glass: rgba(255, 255, 255, 0.88);
+  --bg-surface-elevated: #ffffff;
+  --bg-muted: #f1f5f9;
+  --bg-hover: #e2e8f0;
+  --border-subtle: #e2e8f0;
+  --border-medium: #cbd5e1;
+
+  --text-main: #0f172a;
+  --text-muted: #64748b;
+  --text-light: #94a3b8;
+
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-subtle: #eff6ff;
+  --primary-border: #bfdbfe;
+
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+
+  --checker-bg1: #f8fafc;
+  --checker-bg2: #e2e8f0;
+
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 12px 30px rgba(15, 23, 42, 0.14);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  /* Token highlight palette (light) */
+  --tok-cmd: #2563eb;
+  --tok-square: #94a3b8;
+  --tok-brace: #059669;
+  --tok-op: #d97706;
+  --tok-comment: #94a3b8;
+  --tok-num: #7c3aed;
+
+  /* Compatibility aliases */
+  --bg-card: var(--bg-surface);
+  --bg-main: var(--bg-body);
+  --border-color: var(--border-subtle);
+  --primary-color: var(--primary);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-body: #0b0f19;
+  --bg-surface: #111827;
+  --bg-surface-glass: rgba(17, 24, 39, 0.88);
+  --bg-surface-elevated: #1f2937;
+  --bg-muted: #1e293b;
+  --bg-hover: #334155;
+  --border-subtle: #1e293b;
+  --border-medium: #334155;
+
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --text-light: #64748b;
+
+  --primary: #3b82f6;
+  --primary-hover: #60a5fa;
+  --primary-subtle: rgba(59, 130, 246, 0.14);
+  --primary-border: rgba(59, 130, 246, 0.35);
+
+  --checker-bg1: #1e293b;
+  --checker-bg2: #0f172a;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 16px 36px rgba(0, 0, 0, 0.55);
+
+  /* Token highlight palette (dark) */
+  --tok-cmd: #60a5fa;
+  --tok-square: #64748b;
+  --tok-brace: #34d399;
+  --tok-op: #fbbf24;
+  --tok-comment: #64748b;
+  --tok-num: #a78bfa;
+
+  --bg-card: var(--bg-surface);
+  --bg-main: var(--bg-body);
+  --border-color: var(--border-subtle);
+  --primary-color: var(--primary);
+}
+
+* {
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-medium) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border-medium);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--text-light);
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-body);
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-main);
+  background: var(--bg-muted);
+  border: 1px solid var(--border-medium);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
