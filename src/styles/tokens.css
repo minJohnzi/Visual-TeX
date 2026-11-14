@@ -20,6 +20,8 @@
   --primary-hover: #1d4ed8;
   --primary-subtle: #eff6ff;
   --primary-border: #bfdbfe;
+  --selection-bg: #dbeafe;
+  --contains-highlight-bg: #eff6ff;
 
   --success: #10b981;
   --warning: #f59e0b;
@@ -70,6 +72,8 @@
   --primary-hover: #60a5fa;
   --primary-subtle: rgba(59, 130, 246, 0.14);
   --primary-border: rgba(59, 130, 246, 0.35);
+  --selection-bg: #172a4a;
+  --contains-highlight-bg: #132038;
 
   --checker-bg1: #1e293b;
   --checker-bg2: #0f172a;

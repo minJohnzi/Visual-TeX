@@ -167,9 +167,9 @@
   outline: none;
   border: none;
   --caret-color: var(--primary);
-  --selection-background-color: var(--primary-subtle);
+  --selection-background-color: var(--selection-bg);
   --selection-color: var(--text-main);
-  --contains-highlight-background-color: rgba(37, 99, 235, 0.08);
+  --contains-highlight-background-color: var(--contains-highlight-bg);
   --placeholder-color: var(--text-light);
 }
 

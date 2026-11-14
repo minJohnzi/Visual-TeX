@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { commandBus } from '../../commands/commandBus';
 import { mathfieldToSourceLatex, sourceToMathfieldLatex } from '../../core/latex/bridge';
 import { findNextPlaceholder, normalizePastedLatex } from '../../core/latex/protocol';
+import { coalesceShadowSelections } from '../../core/latex/selectionBox';
 import { useI18n } from '../../i18n/context';
 import { useAppStore } from '../../store/useAppStore';
 
@@ -55,6 +56,8 @@ export const VisualEditor: React.FC<VisualEditorProps> = ({
   // Lazy-register <math-field> custom element once and configure listeners
   useEffect(() => {
     let disposed = false;
+    let selectionObserver: MutationObserver | null = null;
+    let handleSelectionChange: (() => void) | null = null;
 
     loadMathLive().then(() => {
       if (disposed || !fieldRef.current) return;
@@ -103,6 +106,17 @@ export const VisualEditor: React.FC<VisualEditorProps> = ({
 
       mf.setValue(sourceToMathfieldLatex(value), { silenceNotifications: true });
       readyRef.current = true;
+
+      const syncSelections = () => coalesceShadowSelections(mf.shadowRoot);
+      syncSelections();
+      if (mf.shadowRoot) {
+        selectionObserver = new MutationObserver(() => {
+          syncSelections();
+        });
+        selectionObserver.observe(mf.shadowRoot, { childList: true, subtree: true });
+      }
+      handleSelectionChange = syncSelections;
+      mf.addEventListener('selection-change', handleSelectionChange);
     });
 
     const mf = fieldRef.current;
@@ -134,6 +148,10 @@ export const VisualEditor: React.FC<VisualEditorProps> = ({
 
     return () => {
       disposed = true;
+      selectionObserver?.disconnect();
+      if (handleSelectionChange) {
+        mf.removeEventListener('selection-change', handleSelectionChange);
+      }
       mf.removeEventListener('input', handleInput);
       mf.removeEventListener('paste', handlePaste as EventListener);
     };
