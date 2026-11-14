@@ -122,7 +122,7 @@ Open **[visual-tex.ai.studio](https://visual-tex.ai.studio)** in any modern brow
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-username/Visual-TeX.git
+git clone https://github.com/minJohnzi/Visual-TeX.git
 cd Visual-TeX
 
 # 2. Install dependencies

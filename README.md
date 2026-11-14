@@ -122,7 +122,7 @@
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/your-username/Visual-TeX.git
+git clone https://github.com/minJohnzi/Visual-TeX.git
 cd Visual-TeX
 
 # 2. 安装依赖
