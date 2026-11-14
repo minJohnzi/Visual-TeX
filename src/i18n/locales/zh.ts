@@ -7,6 +7,7 @@ export const zh: Translations = {
   navHistory: '历史记录',
   navHelp: '快捷键',
   navLang: 'EN',
+  navGithub: 'GitHub 开源仓库',
   themeToDark: '切换深色主题',
   themeToLight: '切换浅色主题',
 

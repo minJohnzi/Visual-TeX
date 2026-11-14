@@ -9,6 +9,7 @@ export interface Translations {
   navHistory: string;
   navHelp: string;
   navLang: string;
+  navGithub: string;
   themeToDark: string;
   themeToLight: string;
 

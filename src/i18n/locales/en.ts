@@ -7,6 +7,7 @@ export const en: Translations = {
   navHistory: 'History',
   navHelp: 'Shortcuts',
   navLang: '中文',
+  navGithub: 'GitHub Repository',
   themeToDark: 'Switch to Dark Mode',
   themeToLight: 'Switch to Light Mode',
 
